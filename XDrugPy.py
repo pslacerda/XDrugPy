@@ -25,6 +25,8 @@ from pymol import Qt
 #
 QStandardPaths = Qt.QtCore.QStandardPaths
 data_dir = QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
 system = platform.system().lower()
 match system:
     case 'windows':
@@ -41,11 +43,11 @@ if not os.path.exists(fpocket_bin):
     print(f'Installing Fpocket on "{fpocket_bin}"')
     fpocket_url = f"https://raw.githubusercontent.com/pslacerda/XDrugPy/master/bin/fpocket.{system}"
     urlretrieve(fpocket_url, fpocket_bin)
-    os.chmod(fpocket_bin, os.stat(fpocket_bin) | stat.S_IEXEC)
+    os.chmod(fpocket_bin, stat.S_IEXEC)
 
 
 #
-# INSTALL PYTHON DEPENDENCIES
+# INSTALL OTHER REQUIREENTS
 #
 
 try:
@@ -313,10 +315,6 @@ def get_kozakov2015(group, clusters, max_length=8):
 
 
 def get_fpocket(group, protein):
-    if shutil.which('fpocket') is None:
-        print('FPOCKET is NONE')
-        return []
-
     pockets = []
     # with tempfile.TemporaryDirectory() as tempdir:
     tempdir = "/tmp"
@@ -325,16 +323,12 @@ def get_fpocket(group, protein):
         pm.save(protein_pdb, selection=protein)
         subprocess.check_call(
             [
-                shutil.which('fpocket'),
+                fpocket_bin,
                 '-f',
                 protein_pdb
             ],
         )
         header_re = re.compile(r'^HEADER\s+\d+\s+-(.*):(.*)$')
-        print()
-        print(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb")
-        print(glob(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb"))
-        print()
         for pocket_pdb in glob(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb"):
             idx = os.path.basename(pocket_pdb).replace('pocket', '').replace('_atm.pdb', '')
             idx = int(idx)
