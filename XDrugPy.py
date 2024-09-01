@@ -317,9 +317,7 @@ def get_fpocket(group, protein):
         pm.save(protein_pdb, selection=protein)
         subprocess.check_call(
             [fpocket_bin, "-f", protein_pdb],
-            env={
-                "TMPDIR": QStandardPaths.writableLocation(QStandardPaths.TempLocation)
-            },
+            env={"TMPDIR": tempdir},
         )
         header_re = re.compile(r"^HEADER\s+\d+\s+-(.*):(.*)$")
         path = Path(tempdir)
@@ -1221,9 +1219,9 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                             )
                         except Exception:
                             if not os.path.exists(filename):
-                                raise ValueError(f"Invalid filename '{filename}'")
+                                raise ValueError(f"File does not exist: '{filename}'")
                             else:
-                                raise Exception(f"Could not load file '{filename}'")
+                                raise Exception(f"Failed to load file: '{filename}'")
             finally:
                 self.clearRows()
 
@@ -1257,6 +1255,7 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                 def itemClicked(item):
                     obj = self.item(item.row(), 0).text()
                     pm.select(obj)
+                    pm.enable("sele")
 
             def hideEvent(self, evt):
                 self.clearSelection()
