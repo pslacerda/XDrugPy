@@ -15,7 +15,6 @@ REQUIREMENTS
 """
 
 import platform
-import shutil
 import subprocess
 import sys
 import os.path
@@ -55,12 +54,10 @@ try:
     import numpy as np
     import seaborn as sb
     import pandas as pd
-    import openpyxl
     from scipy.spatial import distance_matrix, distance
     from scipy.cluster.hierarchy import dendrogram, linkage
     from scipy.stats import pearsonr
     from matplotlib import pyplot as plt
-    from matplotlib import ticker
     from strenum import StrEnum
 
 except ImportError:
@@ -88,16 +85,13 @@ except ImportError:
 
 import tempfile
 import os.path
-import json
 import re
-from enum import Enum
 from fnmatch import fnmatch
 from glob import glob
 from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
-from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import seaborn as sb
@@ -318,9 +312,7 @@ def get_kozakov2015(group, clusters, max_length=8):
 
 def get_fpocket(group, protein):
     pockets = []
-    # with tempfile.TemporaryDirectory() as tempdir:
-    tempdir = "/tmp"
-    if True:
+    with tempfile.TemporaryDirectory() as tempdir:
         protein_pdb = f"{tempdir}/{group}.pdb"
         pm.save(protein_pdb, selection=protein)
         subprocess.check_call(
@@ -330,9 +322,10 @@ def get_fpocket(group, protein):
             },
         )
         header_re = re.compile(r"^HEADER\s+\d+\s+-(.*):(.*)$")
-        for pocket_pdb in glob(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb"):
+        path = Path(tempdir)
+        for pocket_pdb in path.glob(f"{group}_out/pockets/pocket*_atm.pdb"):
             idx = (
-                os.path.basename(pocket_pdb)
+                pocket_pdb.name
                 .replace("pocket", "")
                 .replace("_atm.pdb", "")
             )
@@ -505,8 +498,6 @@ def fo(
     sel1: Selection,
     sel2: Selection,
     radius: float = 2,
-    state1: int = 1,
-    state2: int = 1,
     verbose: bool = True,
 ):
     """
@@ -516,20 +507,16 @@ def fo(
     Nc is the number of atoms of sel1 in contact with sel2. Nt is the number of atoms
     of sel1. Hydrogen atoms are ignored.
 
-    Default to first state from sel1 and sel2.
-
     OPTIONS
         sel1    ligand object.
         sel2    hotspot object.
         radius  the radius so sel1 and sel2 are in contact (default: 2).
-        state1  state of sel1.
-        state2  state of sel2.
 
     EXAMPLE
         fo REF_LIG, ftmap1234.D_003_*_*
     """
-    atoms1 = pm.get_coords(f"({sel1}) and not elem H", state=state1)
-    atoms2 = pm.get_coords(f"({sel2}) and not elem H", state=state2)
+    atoms1 = pm.get_coords(f"({sel1}) and not elem H")
+    atoms2 = pm.get_coords(f"({sel2}) and not elem H")
     dist = distance_matrix(atoms1, atoms2) - radius <= 0
     num_contacts = np.sum(np.any(dist, axis=1))
     total_atoms = len(atoms1)
@@ -544,24 +531,19 @@ def dc(
     sel1: Selection,
     sel2: Selection,
     radius: float = 1.25,
-    state1: int = 1,
-    state2: int = 1,
     verbose: bool = True,
 ):
     """
     Compute the Density Correlation according to:
         https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3264775/
 
-    sel1 and sel2 are the selections representing the molecules or hotspots;
-    state1 and state2 are the optional corresponding states (default to first
-    state both). The threshold distance can be changed with radius.
+    sel1 and sel2 are the selections representing the molecules or hotspots. The
+    threshold distance can be changed with radius.
 
     OPTIONS
         sel1    first object
         sel2    second object
         radius  the radius so two atoms are in contact (default: 1.25)
-        state1  state of sel1
-        state2  state of sel2
         verbose define verbosity
 
     EXAMPLES
@@ -569,8 +551,8 @@ def dc(
         dc ftmap1234.D.003, REF_LIG, radius=1.5
 
     """
-    xyz1 = pm.get_coords(f"({sel1}) and not elem H", state1)
-    xyz2 = pm.get_coords(f"({sel2}) and not elem H", state2)
+    xyz1 = pm.get_coords(f"({sel1}) and not elem H")
+    xyz2 = pm.get_coords(f"({sel2}) and not elem H")
 
     dc_ = (distance_matrix(xyz1, xyz2) < radius).sum()
     if verbose:
@@ -583,92 +565,29 @@ def dce(
     sel1: Selection,
     sel2: Selection,
     radius: float = 1.25,
-    state1: int = 1,
-    state2: int = 1,
     verbose: bool = True,
 ):
     """
     Compute the Density Correlation Efficiency according to:
         https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3264775/
 
-    sel1 and sel2 are respectively the molecule and hotspot; state1 and state2 are
-    the optional corresponding states (default to first state both). The threshold
+    sel1 and sel2 are respectively the molecule and hotspot. The threshold
     distance can be changed with radius.
 
     OPTIONS
         sel1    ligand object
         sel2    hotspot object
         radius  the radius so two atoms are in contact (default: 1.25)
-        state1  state of sel1
-        state2  state of sel2
         verbose define verbosity
 
     EXAMPLE
         dce REF_LIG, ftmap1234.D_003_*_*
     """
-    dc_ = dc(sel1, sel2, radius, state1, state2, verbose=False)
+    dc_ = dc(sel1, sel2, radius, verbose=False)
     dce_ = dc_ / pm.count_atoms(f"({sel1}) and not elem H")
     if verbose:
         print(f"DCE: {dce_:.2f}")
     return dce_
-
-
-@lru_cache(maxsize=1_000)
-@declare_command
-def jaccard(
-    sel1: Selection,
-    sel2: Selection,
-    state1: int = 1,
-    state2: int = 1,
-    verbose: bool = True,
-):
-    """
-    Compute the Jaccard similarity index of residues between sel1 and sel2. Two
-    residues are considered the same if they match chain and resi after cealign.
-
-    OPTIONS:
-        sel1	a selection
-        sel2	another selection
-        verbose define verbosity
-
-    EXAMPLES
-        jaccard polymer within 4 of *.D_003_*_*, polymer within *.D_002_*_*
-        jaccard polymer within 4 of *.B_*, polymer within *.D.*
-
-    """
-
-    site = [(a.chain, a.resi) for a in pm.get_model(sel2).atom]
-    try:
-        aln_obj = pm.get_unused_name()
-        pm.cealign(
-            f"bymolecule {sel2}", f"bymolecule {sel1}", transform=0, object=aln_obj
-        )
-        raw = pm.get_raw_alignment(aln_obj)
-
-        resis = {}
-        pm.iterate(
-            aln_obj, "resis[model, index] = (chain, resi)", space={"resis": resis}
-        )
-
-        resis2 = set()
-        for idx1, idx2 in raw:
-            if resis[idx1] in site:
-                resis2.add(resis[idx2])
-
-        resis1 = set()
-        pm.iterate(sel1, "resis1.add((chain, resi))", space={"resis1": resis1})
-
-        try:
-            ret = len(resis1.intersection(resis2)) / len(resis1.union(resis2))
-        except ZeroDivisionError:
-            print("Your selections yields zero atoms.")
-            return 0.0
-
-        if verbose:
-            print(f"Jaccard similarity: {ret:.2}")
-        return ret
-    finally:
-        pm.delete(aln_obj)
 
 
 class LinkageMethod(StrEnum):
@@ -868,20 +787,28 @@ def ho(
     return ho
 
 
+class ResidueSimilarityMethod(StrEnum):
+    JACCARD = "jaccard"
+    OVERLAP = "overlap"
+
+
 @declare_command
 def res_sim(
     hs1: Selection,
     hs2: Selection,
-    radius: int = 4,
+    radius: int = 2,
+    method: ResidueSimilarityMethod = ResidueSimilarityMethod.JACCARD,
     verbose: bool = True,
 ):
     """
-    Compute hotspots by the Jaccard similarity of nearby residues.
+    Compute hotspots similarity by the Jaccard or overlap coefficient of nearby
+    residues.
 
     OPTIONS
-        hs1     an hotspot object
-        hs2     another hotspot object
-        radius  the distance to consider residues near hotspots (default: 4)
+        hs1     hotspot 1
+        hs2     hotspot 2
+        radius  distance to consider residues near hotspots (default: 2)
+        method  jaccard or overlap (default: jaccard)
         verbose define verbosity
 
     EXAMPLES
@@ -895,25 +822,58 @@ def res_sim(
     sel1 = f"{group1}.protein within {radius} from ({hs1})"
     sel2 = f"{group2}.protein within {radius} from ({hs2})"
 
-    try:
-        ret = jaccard(sel1, sel2, verbose=verbose)
-    except:
-        raise Exception(f"Cannot compute residue_similarity of {hs1} and {hs2}")
+    resis1 = set()
+    pm.iterate(sel1, "resis1.add((chain, resi))", space={"resis1": resis1})
 
+    if group1 == group2:
+        resis2 = set()
+        pm.iterate(sel2, "resis2.add((chain, resi))", space={"resis2": resis2})
+    else:
+        try:
+            aln_obj = pm.get_unused_name()
+            pm.cealign(
+                f"{group1}.protein", f"{group2}.protein", transform=0, object=aln_obj
+            )
+            raw = pm.get_raw_alignment(aln_obj)
+
+            resis = {}
+            pm.iterate(
+                aln_obj, "resis[model, index] = (chain, resi)", space={"resis": resis}
+            )
+
+            site2 = [(a.chain, a.resi) for a in pm.get_model(sel2).atom]
+            resis2 = set()
+            for idx1, idx2 in raw:
+                if resis[idx1] in site2:
+                    resis2.add(resis[idx2])
+        finally:
+            pm.delete(aln_obj)
+
+    try:
+        match method:
+            case ResidueSimilarityMethod.JACCARD:
+                ret = len(resis1.intersection(resis2)) / len(resis1.union(resis2))
+            case ResidueSimilarityMethod.OVERLAP:
+                ret = len(resis1.intersection(resis2)) / min(len(resis1), len(resis2))
+    except ZeroDivisionError:
+        print("Your selection yields zero atoms.")
+        return 0.0
+
+    if verbose:
+        print(f"{method} similarity: {ret:.2}")
     return ret
 
 
-class CrossMeasureFunction(StrEnum):
-    DC = "dc"
-    FO = "fo"
+class HeatmapFunction(StrEnum):
     HO = "ho"
-    RESIDUE = "res_sim"
+    RESIDUE_JACCARD = "residue_jaccard"
+    RESIDUE_OVERLAP = "residue_overlap"
 
 
 @declare_command
 def plot_heatmap(
     objs: Selection,
-    function: CrossMeasureFunction = CrossMeasureFunction.FO,
+    method: HeatmapFunction = HeatmapFunction.HO,
     radius: float = 2.0,
     annotate: bool = False,
 ):
@@ -922,12 +882,12 @@ def plot_heatmap(
 
     OPTIONS
         objs        space separated list of object expressions
-        function    dce, fo, or residue
+        method      ho, residue_jaccard, or residue_overlap (default: ho) 
         radius      the radius to consider atoms in contact (default: 2.0)
         annotate    fill the cells with values
 
     EXAMPLES
-        cross_measure *.D_000_*_*, function=dce
+        cross_measure *.D_000_*_*, function=residue_jaccard
         cross_measure *.D_*
         cross_measure *.D_000_*_* *.DS_*
     """
@@ -942,7 +902,7 @@ def plot_heatmap(
 
     def sort(obj):
         klass = pm.get_property("Class", obj)
-        return klass, obj
+        return str(klass), obj
 
     obj1s = list(sorted(obj1s, key=sort))
 
@@ -953,28 +913,19 @@ def plot_heatmap(
     for idx1, obj1 in enumerate(obj1s):
         mat.append([])
         for idx2, obj2 in enumerate(obj1s):
-            match function:
-                case CrossMeasureFunction.DC:
-                    ret = dc(obj1, obj2, radius=radius, verbose=False)
-
-                case CrossMeasureFunction.FO:
-                    ret = fo(obj1, obj2, radius=radius, verbose=False)
-
-                case CrossMeasureFunction.RESIDUE:
-                    ret = res_sim(obj1, obj2, verbose=False)
-
-                case CrossMeasureFunction.HO:
-                    ret = ho(obj1, obj2, radius=radius, verbose=False)
-
+            if idx2 >= idx1:
+                ret = np.nan
+            else:
+                match method:
+                    case HeatmapFunction.HO:
+                        ret = ho(obj1, obj2, radius=radius, verbose=False)
+                    case HeatmapFunction.RESIDUE_JACCARD:
+                        ret = res_sim(obj1, obj2, radius=radius, method="jaccard", verbose=False)
+                    case HeatmapFunction.RESIDUE_OVERLAP:
+                        ret = res_sim(obj1, obj2, radius=radius, method="overlap", verbose=False)
             mat[-1].append(round(ret, 2))
 
-    if function == CrossMeasureFunction.DC:
-        vmax = np.max(mat)
-    else:
-        vmax = 1
-
     plt.close()
-
     fig, ax = plt.subplots(1)
     sb.heatmap(
         mat,
@@ -982,7 +933,7 @@ def plot_heatmap(
         xticklabels=obj1s,
         cmap="viridis",
         vmin=0,
-        vmax=vmax,
+        vmax=1,
         annot=annotate,
         ax=ax,
     )
@@ -1423,7 +1374,7 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
             groupBox.setLayout(boxLayout)
 
             self.functionCombo = QComboBox()
-            self.functionCombo.addItems([e.value for e in CrossMeasureFunction])
+            self.functionCombo.addItems([e.value for e in HeatmapFunction])
             boxLayout.addRow("Function:", self.functionCombo)
 
             self.radiusSpin = QSpinBox()
@@ -1638,3 +1589,6 @@ def __init_plugin__(app=None):
     from pymol.plugins import addmenuitemqt
 
     addmenuitemqt("XDrugPy", run_plugin_gui)
+
+
+run_plugin_gui()
