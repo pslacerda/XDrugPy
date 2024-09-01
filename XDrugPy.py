@@ -327,6 +327,7 @@ def get_fpocket(group, protein):
                 '-f',
                 protein_pdb
             ],
+            env={'TMPDIR': QStandardPaths.writableLocation(QStandardPaths.TempLocation)}
         )
         header_re = re.compile(r'^HEADER\s+\d+\s+-(.*):(.*)$')
         for pocket_pdb in glob(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb"):
@@ -1224,7 +1225,7 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
         def pickFile(self):
             fileDIalog = QFileDialog()
             fileDIalog.setFileMode(QFileDialog.ExistingFiles)
-            fileDIalog.setNameFilter("FTMap PDB output (*.pdb)")
+            fileDIalog.setNameFilter("FTMap PDB (*.pdb)")
             fileDIalog.setViewMode(QFileDialog.Detail)
 
             if fileDIalog.exec_():
