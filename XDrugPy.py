@@ -10,7 +10,7 @@ LICENSE
     CC BY-NC-SA 4.0 or Commercial License
 
 REQUIREMENTS
-    Proprietary PyMOL 2.6+
+    Incentive PyMOL 2.6+
 
 """
 import platform
@@ -1305,15 +1305,22 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
             self.tables = {}
 
             for key, props in self.hotspotsMap.items():
-                self.tables[key] = QTableWidget()
-                self.tables[key].setColumnCount(len(props) + 1)
-                self.tables[key].setHorizontalHeaderLabels(["Object"] + props)
+                table = QTableWidget()
+                self.tables[key] = table
+                table.setSelectionBehavior(QTableWidget.SelectRows)
+                table.setColumnCount(len(props) + 1)
+                table.setHorizontalHeaderLabels(["Object"] + props)
                 header = self.tables[key].horizontalHeader()
                 for idx in range(len(props) + 1):
                     header.setSectionResizeMode(
                         idx, QHeaderView.ResizeMode.ResizeToContents
                     )
-                tab.addTab(self.tables[key], key)
+                tab.addTab(table, key)
+                @table.itemClicked.connect
+                def itemClicked(item):
+                    print(111111111111111)
+                    obj = table.item(item.row(), 0).text()
+                    pm.select(obj)
 
             exportButton = QPushButton(QIcon("save"), "Export Tables")
             exportButton.clicked.connect(self.export)
@@ -1624,6 +1631,3 @@ def __init_plugin__(app=None):
     from pymol.plugins import addmenuitemqt
 
     addmenuitemqt("XDrugPy", run_plugin_gui)
-
-
-run_plugin_gui()
