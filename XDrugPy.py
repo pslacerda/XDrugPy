@@ -745,7 +745,7 @@ def fp_sim(
 
     if plot_dendrogram:
         dendrogram(
-            linkage([1 - p for p in p_list], method="average"),
+            linkage([1 - p for p in p_list], method=linkage_method),
             labels=hss,
             ax=dendro_ax,
             leaf_rotation=45,
