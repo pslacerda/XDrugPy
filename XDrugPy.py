@@ -1286,6 +1286,27 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
 
     class TableWidget(QWidget):
 
+        class TableWidgetImpl(QTableWidget):
+            def __init__(self, props):
+                super().__init__()
+                self.setSelectionBehavior(QTableWidget.SelectRows)
+                self.setSelectionMode(QTableWidget.SingleSelection)
+                self.setColumnCount(len(props) + 1)
+                self.setHorizontalHeaderLabels(["Object"] + props)
+                header = self.horizontalHeader()
+                for idx in range(len(props) + 1):
+                    header.setSectionResizeMode(
+                        idx, QHeaderView.ResizeMode.ResizeToContents
+                    )
+                @self.itemClicked.connect
+                def itemClicked(item):
+                    obj = self.item(item.row(), 0).text()
+                    pm.select(obj)
+
+            def hideEvent(self, evt):
+                self.clearSelection()
+
+
         def __init__(self):
             super().__init__()
 
@@ -1303,24 +1324,10 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                 "Fpocket": ["Pocket Score", "Drug Score"]
             }
             self.tables = {}
-
             for key, props in self.hotspotsMap.items():
-                table = QTableWidget()
+                table = self.TableWidgetImpl(props)
                 self.tables[key] = table
-                table.setSelectionBehavior(QTableWidget.SelectRows)
-                table.setColumnCount(len(props) + 1)
-                table.setHorizontalHeaderLabels(["Object"] + props)
-                header = self.tables[key].horizontalHeader()
-                for idx in range(len(props) + 1):
-                    header.setSectionResizeMode(
-                        idx, QHeaderView.ResizeMode.ResizeToContents
-                    )
                 tab.addTab(table, key)
-                @table.itemClicked.connect
-                def itemClicked(item):
-                    print(111111111111111)
-                    obj = table.item(item.row(), 0).text()
-                    pm.select(obj)
 
             exportButton = QPushButton(QIcon("save"), "Export Tables")
             exportButton.clicked.connect(self.export)
@@ -1631,3 +1638,4 @@ def __init_plugin__(app=None):
     from pymol.plugins import addmenuitemqt
 
     addmenuitemqt("XDrugPy", run_plugin_gui)
+
