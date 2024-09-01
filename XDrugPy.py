@@ -13,6 +13,7 @@ REQUIREMENTS
     Incentive PyMOL 2.6+
 
 """
+
 import platform
 import shutil
 import subprocess
@@ -29,10 +30,10 @@ if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 system = platform.system().lower()
 match system:
-    case 'windows':
-        bin_fname = 'fpocket.exe'
-    case 'linux' | 'darwin':
-        bin_fname = 'fpocket'
+    case "windows":
+        bin_fname = "fpocket.exe"
+    case "linux" | "darwin":
+        bin_fname = "fpocket"
 fpocket_bin = f"{data_dir}/{bin_fname}"
 
 if not os.path.exists(fpocket_bin):
@@ -125,6 +126,7 @@ __all__ = [
 ]
 
 matplotlib.use("Qt5Agg")
+
 
 class Selection(str):
     pass
@@ -322,25 +324,25 @@ def get_fpocket(group, protein):
         protein_pdb = f"{tempdir}/{group}.pdb"
         pm.save(protein_pdb, selection=protein)
         subprocess.check_call(
-            [
-                fpocket_bin,
-                '-f',
-                protein_pdb
-            ],
-            env={'TMPDIR': QStandardPaths.writableLocation(QStandardPaths.TempLocation)}
+            [fpocket_bin, "-f", protein_pdb],
+            env={
+                "TMPDIR": QStandardPaths.writableLocation(QStandardPaths.TempLocation)
+            },
         )
-        header_re = re.compile(r'^HEADER\s+\d+\s+-(.*):(.*)$')
+        header_re = re.compile(r"^HEADER\s+\d+\s+-(.*):(.*)$")
         for pocket_pdb in glob(f"{tempdir}/{group}_out/pockets/pocket*_atm.pdb"):
-            idx = os.path.basename(pocket_pdb).replace('pocket', '').replace('_atm.pdb', '')
-            idx = int(idx)
-            pocket = SimpleNamespace(
-                selection = f'{group}.fpocket_{idx:02}'
+            idx = (
+                os.path.basename(pocket_pdb)
+                .replace("pocket", "")
+                .replace("_atm.pdb", "")
             )
+            idx = int(idx)
+            pocket = SimpleNamespace(selection=f"{group}.fpocket_{idx:02}")
             pm.delete(pocket.selection)
             pm.load(pocket_pdb, pocket.selection)
             pm.set_property("Type", "Fpocket", pocket.selection)
             pm.set_property("Group", group, pocket.selection)
-            for line in pm.get_property('pdb_header', pocket.selection).split('\n'):
+            for line in pm.get_property("pdb_header", pocket.selection).split("\n"):
                 if match := header_re.match(line):
                     prop = match.group(1).strip()
                     value = float(match.group(2))
@@ -1299,6 +1301,7 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                     header.setSectionResizeMode(
                         idx, QHeaderView.ResizeMode.ResizeToContents
                     )
+
                 @self.itemClicked.connect
                 def itemClicked(item):
                     obj = self.item(item.row(), 0).text()
@@ -1306,7 +1309,6 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
 
             def hideEvent(self, evt):
                 self.clearSelection()
-
 
         def __init__(self):
             super().__init__()
@@ -1321,8 +1323,8 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                 "Kozakov2015": ["Class", "S", "S0", "CD", "MD", "Length"],
                 "CS": ["S"],
                 "ACS": ["Class", "S", "MD"],
-                "Egbert2019": ["Fpocket", "S","S0", "S1", "Length"],
-                "Fpocket": ["Pocket Score", "Drug Score"]
+                "Egbert2019": ["Fpocket", "S", "S0", "S1", "Length"],
+                "Fpocket": ["Pocket Score", "Drug Score"],
             }
             self.tables = {}
             for key, props in self.hotspotsMap.items():
@@ -1376,10 +1378,7 @@ if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
                 ext = os.path.splitext(filename)[1]
                 with pd.ExcelWriter(filename) as xlsx_writer:
                     for key, props in self.hotspotsMap.items():
-                        data = {
-                            "Object": [],
-                            **{ p: [] for p in props }
-                        }
+                        data = {"Object": [], **{p: [] for p in props}}
                         for header in data:
                             column = list(data.keys()).index(header)
                             for line in range(self.tables[key].rowCount()):
@@ -1639,4 +1638,3 @@ def __init_plugin__(app=None):
     from pymol.plugins import addmenuitemqt
 
     addmenuitemqt("XDrugPy", run_plugin_gui)
-
