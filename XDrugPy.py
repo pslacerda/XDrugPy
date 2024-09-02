@@ -20,6 +20,7 @@ import sys
 import os.path
 from pymol import Qt
 
+
 #
 # INSTALL FPOCKET
 #
@@ -52,12 +53,12 @@ if not os.path.exists(fpocket_bin):
 
 try:
     import numpy as np
-    import seaborn as sb
     import pandas as pd
     from scipy.spatial import distance_matrix, distance
     from scipy.cluster.hierarchy import dendrogram, linkage
     from scipy.stats import pearsonr
     from matplotlib import pyplot as plt
+    import seaborn as sb
     from strenum import StrEnum
 
 except ImportError:
@@ -87,14 +88,12 @@ import tempfile
 import os.path
 import re
 from fnmatch import fnmatch
-from glob import glob
 from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
-import seaborn as sb
 import pandas as pd
 import matplotlib
 from scipy.spatial import distance_matrix, distance
@@ -102,7 +101,7 @@ from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.stats import pearsonr
 from pymol import cmd as pm, parsing
 from matplotlib import pyplot as plt
-from matplotlib import ticker
+import seaborn as sb
 from strenum import StrEnum
 
 __all__ = [
@@ -110,7 +109,6 @@ __all__ = [
     "fo",
     "dc",
     "dce",
-    "jaccard",
     "fp_sim",
     "ho",
     "res_sim",
@@ -121,6 +119,12 @@ __all__ = [
 
 matplotlib.use("Qt5Agg")
 
+ONE_LETTER ={
+    'VAL':'V', 'ILE':'I', 'LEU':'L', 'GLU':'E', 'GLN':'Q',
+    'ASP':'D', 'ASN':'N', 'HIS':'H', 'TRP':'W', 'PHE':'F',
+    'TYR':'Y', 'ARG':'R', 'LYS':'K', 'SER':'S', 'THR':'T',
+    'MET':'M', 'ALA':'A', 'GLY':'G', 'PRO':'P', 'CYS':'C'
+}
 
 class Selection(str):
     pass
@@ -288,7 +292,7 @@ def get_kozakov2015(group, clusters, max_length=8):
             if hs.kozakov_class:
                 k15.append(hs)
 
-    k15 = sorted(k15, key=lambda hs: (-hs.strength0, hs.strength))
+    k15 = sorted(k15, key=lambda hs: (-hs.strength0, -hs.strength))
     k15 = sorted(k15, key=lambda hs: ["D", "DS", "B", "BS"].index(hs.kozakov_class))
     k15 = list(k15)
 
@@ -596,164 +600,145 @@ class LinkageMethod(StrEnum):
 
 @declare_command
 def fp_sim(
-    hss: Selection,
-    ref_site: str = "*",
-    radius: int = 3,
-    verbose: bool = True,
+    hotspots: Selection,
+    site: str = "*",
+    radius: int = 4,
     plot_fingerprints: bool = True,
-    plot_fingerprints_nbins: int = 10,
-    plot_dendrogram: bool = True,
+    nbins: int = 5,
+    plot_dendrogram: bool = False,
     linkage_method: LinkageMethod = LinkageMethod.SINGLE,
+    verbose: bool = True,
 ):
     """
     Compute the similarity between the residue contact fingerprint of two
     hotspots.
 
     OPTIONS:
-        hss         hotspot expressions
-        protein     protein objects
-        ref_site    selection based on first protein to focus
-        radius      radius to compute the contacts (default: 3)
-        verbose     define verbosity
-        plot        plot the fingerprints (default: True)
-        max_bins    maximum number of residue labels for the fingerprint (default: 10)
+        hotspots          hotspot expressions
+        site              selection to focus based on first protein
+        radius            radius to compute the contacts (default: 4)
+        plot_fingerprints plot the fingerprints (default: True)
+        nbins             number of residue labels (default: 5)
+        plot_dendrogram   plot the dendrogram (default: False)
+        linkage_method    linkage method (default: single)
+        verbose           define verbosity
 
     EXAMPLES
-        fs_sim 8DSU.D_001*, 6XHM.D_001*
-        fs_sim 8DSU.CS_*, 6XHM.CS_*, ref_site=resi 8-101, max_bins=20
-        fp_sim (bm. 8DSU.D_*) within 2.5 of LIG, \\
-               (bm. 6XHM.D_*) within 2.5 of LIG, \\
-               protein1=8DSU.protein, \\
-               protein2=6XHM.protein \\
-               radius=3
+        fs_sim 8DSU.D_01* 6XHM.D_01*
+        fs_sim 8DSU.CS_* 6XHM.CS_*, site=resi 8-101, nbins=10
     """
 
     expanded_hss = []
     all_groups = [g.split(".", maxsplit=1)[0] for g in pm.get_object_list("*.protein")]
-    for expr in hss.split():
+    for expr in hotspots.split():
         expr_g, expr_part = expr.split(".", maxsplit=1)
         for g in all_groups:
             if fnmatch(g, expr_g):
                 expanded_hss.append("%s.%s" % (g, expr_part))
 
-    hss = expanded_hss
-    groups = [hs.split(".", maxsplit=1)[0] for hs in hss]
+    hotspots = expanded_hss
+    groups = [hs.split(".", maxsplit=1)[0] for hs in hotspots]
     proteins = [f"{g}.protein" for g in groups]
 
     p0 = proteins[0]
-    titles = [p[:-8] if p.endswith(".protein") else p for p in proteins]
+    site_index = set()
+    pm.iterate(
+        f"({p0}) and name CA and ({site})",
+        "site_index.add(index)",
+        space={"site_index": site_index}
+    )
 
-    fp_list = [None] * len(proteins)
-    p_list = []
+    def get_resi_map(p1, p2):
+        try:
+            aln_obj = pm.get_unused_name()
+            pm.cealign(p1, p2, transform=0, object=aln_obj)
+            raw = pm.get_raw_alignment(aln_obj)
+        finally:
+            pm.delete(aln_obj)
+        resis2 = {}
+        pm.iterate(
+            p2,
+            "resis2[index] = (model, index, resn, resi, chain)",
+            space={"resis2": resis2},
+        )
+        resis_map = {}
+        for (model1, idx1), (model2, idx2) in raw:
+            if idx1 not in site_index:
+                continue
+            resis_map[idx1] = resis2[idx2]
+        return resis_map
+    
+    def calc_fp(hs, resi_map):
+        fpt = []
+        labels = []
+        for index in resi_map:
+            model, mapped_index, resn, resi, chain = resi_map[index]
+            cnt = count_molecules(
+                f"({hs}) within {radius} from (%{model} and index {mapped_index})"
+            )
+            fpt.append(cnt)
+            resn = ONE_LETTER.get(resn, 'X')
+            labels.append(f"{resn}{resi}{chain}")
+        return fpt, labels
+
+    def plot_fp(fp, lbl, hs, ax):
+        ax.set_ylabel(hs)
+        ax.bar(np.arange(len(fp)), fp)
+        ax.yaxis.set_major_formatter(lambda x, pos: str(int(x)))
+        ax.set_xticks(np.arange(len(fp)), labels=lbl, rotation=45)
+        ax.locator_params(axis="x", tight=True, nbins=nbins)
+        for label in ax.xaxis.get_majorticklabels():
+            label.set_horizontalalignment("right")
 
     plt.close()
-    fig = plt.figure()
-    fig_nrows = 0
-
-    if plot_dendrogram:
-        fig_nrows += 1
-    if plot_fingerprints:
-        fig_nrows += len(proteins)
-
     if plot_fingerprints and plot_dendrogram:
-        dendro_ax = fig.add_subplot(fig_nrows, 1, 1)
-        fp_axs = []
-        for i, p in enumerate(proteins):
-            fp_axs.append(fig.add_subplot(fig_nrows, 1, i + 2))
-
-    if plot_fingerprints and not plot_dendrogram:
-        fp_axs = []
-        for i, p in enumerate(proteins):
-            fp_axs.append(fig.add_subplot(fig_nrows, 1, i + 1))
-
-    if not plot_fingerprints and plot_dendrogram:
-        dendro_ax = fig.add_subplot(fig_nrows, 1, 1)
-
-    for i1, (hs1, p1) in enumerate(zip(hss, proteins)):
-        for i2, (hs2, p2) in enumerate(zip(hss, proteins)):
-            if i1 >= i2:
-                continue
-            try:
-                aln_obj = pm.get_unused_name()
-                pm.cealign(
-                    f"bymolecule {p1}", f"bymolecule {p2}", transform=0, object=aln_obj
-                )
-                raw = pm.get_raw_alignment(aln_obj)
-
-                resis = {}
-                pm.iterate(
-                    aln_obj,
-                    "resis[model, index] = (segi, chain, resi, resn)",
-                    space={"resis": resis},
-                )
-            finally:
-                pm.delete(aln_obj)
-
-            site = []
-            if ref_site:
-                pm.iterate(
-                    f"(bymolecule {p1}) and name CA and ({ref_site})",
-                    "site.append(index)",
-                    space={"site": site},
-                )
-
-            lbl1 = []
-            lbl2 = []
-            fp1 = []
-            fp2 = []
-            for (model1, index1), (model2, index2) in raw:
-                if ref_site and index1 not in site:
-                    continue
-                segi1, chain1, resi1, resn1 = resis[(model1, index1)]
-                segi2, chain2, resi2, resn2 = resis[(model2, index2)]
-                cnt1 = count_molecules(
-                    f"({hs1}) within {radius} from /{model1}/{segi1}/{chain1}/{resi1}"
-                )
-                cnt2 = count_molecules(
-                    f"({hs2}) within {radius} from /{model2}/{segi2}/{chain2}/{resi2}"
-                )
-                fp1.append(cnt1)
-                fp2.append(cnt2)
-
-                lbl1.append(f"{resn1}_{resi1}_{chain1}")
-                lbl2.append(f"{resn2}_{resi2}_{chain2}")
-
-            p = pearsonr(fp1, fp2).statistic
-            if np.isnan(p):
-                p = 0.0
-            p_list.append(p)
-
-            if verbose:
-                print(f" Pearson correlation ({hs1}, {hs2}) = {p:.2}")
-
-            if plot_fingerprints:
-                for i, fp, hs, lbl in [(i1, fp1, hs1, lbl1), (i2, fp2, hs2, lbl2)]:
-                    if fp_list[i] is not None:
-                        continue
-                    fp_list[i] = fp
-                    ax = fp_axs[i]
-
-                    ax.set_ylabel(hs)
-                    ax.bar(np.arange(len(fp)), fp)
-                    ax.yaxis.set_major_formatter(lambda x, pos: str(int(x)))
-                    ax.set_xticks(np.arange(len(fp)), labels=lbl, rotation=45)
-                    ax.locator_params(
-                        axis="x", tight=True, nbins=plot_fingerprints_nbins
-                    )
-                    for label in ax.xaxis.get_majorticklabels():
-                        label.set_horizontalalignment("right")
-
-    if plot_dendrogram:
-        dendrogram(
-            linkage([1 - p for p in p_list], method=linkage_method),
-            labels=hss,
-            ax=dendro_ax,
-            leaf_rotation=45,
-            color_threshold=0,
+        fig, axd = plt.subplot_mosaic(list(
+            zip(range(len(proteins)), ["DENDRO"] * len(proteins))
+        ))
+    elif plot_fingerprints and not plot_dendrogram:
+        fig, axd = plt.subplot_mosaic(list(zip(range(len(proteins)))))
+    elif not plot_fingerprints and plot_dendrogram:
+        fig, axd = plt.subplot_mosaic([["DENDRO"]])
+        
+    fp_list = []
+    for i, (p, hs) in enumerate(zip(proteins, hotspots)):
+        fp, lbl = calc_fp(hs, get_resi_map(p0, p))
+        fp_list.append(fp)
+        if plot_fingerprints:
+            plot_fp(fp, lbl, hs, axd[i])
+    
+    fp0 = fp_list[0]
+    if not all([len(fp0) == len(fp) for fp in fp_list]):
+        raise ValueError(
+            "All fingerprints must have the same length. "
+            "Do you have incomplete structures?"
         )
+    
+    if verbose or plot_dendrogram:
+        cor_list = []
+        for idx1, (fp1, hs1) in enumerate(zip(fp_list, hotspots)):
+            for idx2, (fp2, hs2) in enumerate(zip(fp_list, hotspots)):
+                if idx1 >= idx2:
+                    continue
+                cor = pearsonr(fp1, fp2).statistic
+                if np.isnan(cor):
+                    cor = 0
+                cor_list.append(cor)
+                if verbose:
+                    print(f"Pearson correlation: {hs1} / {hs2}: {cor:.2f}")
+            
+        if plot_dendrogram:
+            dendrogram(
+                linkage([1 - c for c in cor_list], method=linkage_method),
+                labels=hotspots,
+                ax=axd["DENDRO"],
+                leaf_rotation=45,
+                color_threshold=0,
+            )
+    
     plt.tight_layout()
     plt.show()
-    return p_list
+    return fp_list
 
 
 @declare_command
@@ -911,7 +896,9 @@ def plot_heatmap(
     for idx1, obj1 in enumerate(obj1s):
         mat.append([])
         for idx2, obj2 in enumerate(obj1s):
-            if idx2 >= idx1:
+            if idx1 == idx2:
+                ret = 1
+            elif idx2 > idx1:
                 ret = np.nan
             else:
                 match method:
@@ -930,8 +917,6 @@ def plot_heatmap(
         yticklabels=obj1s,
         xticklabels=obj1s,
         cmap="viridis",
-        vmin=0,
-        vmax=1,
         annot=annotate,
         ax=ax,
     )
@@ -1117,461 +1102,465 @@ def plot_dendrogram(
     return X, labels
 
 
-if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
-    import pymol
+#
+# GRAPHICAL USER INTERFACE
+#
 
-    QWidget = pymol.Qt.QtWidgets.QWidget
-    QFileDialog = pymol.Qt.QtWidgets.QFileDialog
-    QFormLayout = pymol.Qt.QtWidgets.QFormLayout
-    QPushButton = pymol.Qt.QtWidgets.QPushButton
-    QSpinBox = pymol.Qt.QtWidgets.QSpinBox
-    QDoubleSpinBox = pymol.Qt.QtWidgets.QDoubleSpinBox
-    QLineEdit = pymol.Qt.QtWidgets.QLineEdit
-    QCheckBox = pymol.Qt.QtWidgets.QCheckBox
-    QVBoxLayout = pymol.Qt.QtWidgets.QVBoxLayout
-    QHBoxLayout = pymol.Qt.QtWidgets.QHBoxLayout
-    QDialog = pymol.Qt.QtWidgets.QDialog
-    QComboBox = pymol.Qt.QtWidgets.QComboBox
-    QTabWidget = pymol.Qt.QtWidgets.QTabWidget
-    QLabel = pymol.Qt.QtWidgets.QLabel
-    QTableWidget = pymol.Qt.QtWidgets.QTableWidget
-    QTableWidgetItem = pymol.Qt.QtWidgets.QTableWidgetItem
-    QGroupBox = pymol.Qt.QtWidgets.QGroupBox
-    QHeaderView = pymol.Qt.QtWidgets.QHeaderView
+from pymol import Qt
 
-    QtCore = pymol.Qt.QtCore
-    QIcon = pymol.Qt.QtGui.QIcon
+QWidget = Qt.QtWidgets.QWidget
+QFileDialog = Qt.QtWidgets.QFileDialog
+QFormLayout = Qt.QtWidgets.QFormLayout
+QPushButton = Qt.QtWidgets.QPushButton
+QSpinBox = Qt.QtWidgets.QSpinBox
+QDoubleSpinBox = Qt.QtWidgets.QDoubleSpinBox
+QLineEdit = Qt.QtWidgets.QLineEdit
+QCheckBox = Qt.QtWidgets.QCheckBox
+QVBoxLayout = Qt.QtWidgets.QVBoxLayout
+QHBoxLayout = Qt.QtWidgets.QHBoxLayout
+QDialog = Qt.QtWidgets.QDialog
+QComboBox = Qt.QtWidgets.QComboBox
+QTabWidget = Qt.QtWidgets.QTabWidget
+QLabel = Qt.QtWidgets.QLabel
+QTableWidget = Qt.QtWidgets.QTableWidget
+QTableWidgetItem = Qt.QtWidgets.QTableWidgetItem
+QGroupBox = Qt.QtWidgets.QGroupBox
+QHeaderView = Qt.QtWidgets.QHeaderView
 
-    class LoadWidget(QWidget):
+QtCore = Qt.QtCore
+QIcon = Qt.QtGui.QIcon
 
-        def __init__(self):
-            super().__init__()
 
-            layout = QVBoxLayout()
-            self.setLayout(layout)
+class LoadWidget(QWidget):
 
-            self.table = QTableWidget()
-            self.table.setColumnCount(2)
-            self.table.setHorizontalHeaderLabels(["Group", "Filename"])
-            header = self.table.horizontalHeader()
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            layout.addWidget(self.table)
+    def __init__(self):
+        super().__init__()
 
-            addRemoveLayout = QHBoxLayout()
-            layout.addLayout(addRemoveLayout)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
 
-            pickFileButton = QPushButton("Add")
-            pickFileButton.clicked.connect(self.pickFile)
-            addRemoveLayout.addWidget(pickFileButton)
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Group", "Filename"])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.table)
 
-            removeButton = QPushButton("Remove")
-            removeButton.clicked.connect(self.removeRow)
-            addRemoveLayout.addWidget(removeButton)
+        addRemoveLayout = QHBoxLayout()
+        layout.addLayout(addRemoveLayout)
 
-            loadButton = QPushButton("Load")
-            loadButton.clicked.connect(self.load)
-            addRemoveLayout.addWidget(loadButton)
+        pickFileButton = QPushButton("Add")
+        pickFileButton.clicked.connect(self.pickFile)
+        addRemoveLayout.addWidget(pickFileButton)
 
-        def pickFile(self):
-            fileDIalog = QFileDialog()
-            fileDIalog.setFileMode(QFileDialog.ExistingFiles)
-            fileDIalog.setNameFilter("FTMap PDB (*.pdb)")
-            fileDIalog.setViewMode(QFileDialog.Detail)
+        removeButton = QPushButton("Remove")
+        removeButton.clicked.connect(self.removeRow)
+        addRemoveLayout.addWidget(removeButton)
 
-            if fileDIalog.exec_():
-                for filename in fileDIalog.selectedFiles():
-                    basename = os.path.splitext(os.path.basename(filename))
-                    group = basename[0]
-                    self.appendRow(filename, group)
+        loadButton = QPushButton("Load")
+        loadButton.clicked.connect(self.load)
+        addRemoveLayout.addWidget(loadButton)
 
-        def appendRow(self, filename, group):
-            groupItem = QTableWidgetItem(group)
-            filenameItem = QTableWidgetItem(filename)
+    def pickFile(self):
+        fileDIalog = QFileDialog()
+        fileDIalog.setFileMode(QFileDialog.ExistingFiles)
+        fileDIalog.setNameFilter("FTMap PDB (*.pdb)")
+        fileDIalog.setViewMode(QFileDialog.Detail)
 
-            filenameItem.setFlags(filenameItem.flags() & ~QtCore.Qt.ItemIsEditable)
+        if fileDIalog.exec_():
+            for filename in fileDIalog.selectedFiles():
+                basename = os.path.splitext(os.path.basename(filename))
+                group = basename[0]
+                self.appendRow(filename, group)
 
-            self.table.insertRow(self.table.rowCount())
-            self.table.setItem(self.table.rowCount() - 1, 0, groupItem)
-            self.table.setItem(self.table.rowCount() - 1, 1, filenameItem)
+    def appendRow(self, filename, group):
+        groupItem = QTableWidgetItem(group)
+        filenameItem = QTableWidgetItem(filename)
 
-        def removeRow(self):
-            self.table.removeRow(self.table.currentRow())
+        filenameItem.setFlags(filenameItem.flags() & ~QtCore.Qt.ItemIsEditable)
 
-        def clearRows(self):
-            self.table.setRowCount(0)
+        self.table.insertRow(self.table.rowCount())
+        self.table.setItem(self.table.rowCount() - 1, 0, groupItem)
+        self.table.setItem(self.table.rowCount() - 1, 1, filenameItem)
 
-        def load(self):
-            try:
-                for row in range(self.table.rowCount()):
-                    group = self.table.item(row, 0).text()
-                    filename = self.table.item(row, 1).text()
+    def removeRow(self):
+        self.table.removeRow(self.table.currentRow())
+
+    def clearRows(self):
+        self.table.setRowCount(0)
+
+    def load(self):
+        try:
+            for row in range(self.table.rowCount()):
+                group = self.table.item(row, 0).text()
+                filename = self.table.item(row, 1).text()
+                try:
+                    load_ftmap(
+                        filename,
+                        group=group,
+                    )
+                except Exception:
                     try:
                         load_ftmap(
                             filename,
                             group=group,
                         )
                     except Exception:
-                        try:
-                            load_ftmap(
-                                filename,
-                                group=group,
-                            )
-                        except Exception:
-                            if not os.path.exists(filename):
-                                raise ValueError(f"File does not exist: '{filename}'")
-                            else:
-                                raise Exception(f"Failed to load file: '{filename}'")
-            finally:
-                self.clearRows()
+                        if not os.path.exists(filename):
+                            raise ValueError(f"File does not exist: '{filename}'")
+                        else:
+                            raise Exception(f"Failed to load file: '{filename}'")
+        finally:
+            self.clearRows()
 
-    class SortableItem(QTableWidgetItem):
-        def __init__(self, obj):
-            super().__init__(str(obj))
-            self.setFlags(self.flags() & ~QtCore.Qt.ItemIsEditable)
+class SortableItem(QTableWidgetItem):
+    def __init__(self, obj):
+        super().__init__(str(obj))
+        self.setFlags(self.flags() & ~QtCore.Qt.ItemIsEditable)
 
-        def __lt__(self, other):
+    def __lt__(self, other):
+        try:
+            return float(self.text()) < float(other.text())
+        except ValueError:
+            return self.text() < other.text()
+
+class TableWidget(QWidget):
+
+    class TableWidgetImpl(QTableWidget):
+        def __init__(self, props):
+            super().__init__()
+            self.setSelectionBehavior(QTableWidget.SelectRows)
+            self.setSelectionMode(QTableWidget.SingleSelection)
+            self.setColumnCount(len(props) + 1)
+            self.setHorizontalHeaderLabels(["Object"] + props)
+            header = self.horizontalHeader()
+            for idx in range(len(props) + 1):
+                header.setSectionResizeMode(
+                    idx, QHeaderView.ResizeMode.ResizeToContents
+                )
+
+            @self.itemClicked.connect
+            def itemClicked(item):
+                obj = self.item(item.row(), 0).text()
+                pm.select(obj)
+                pm.enable("sele")
+
+        def hideEvent(self, evt):
+            self.clearSelection()
+
+    def __init__(self):
+        super().__init__()
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        tab = QTabWidget()
+        layout.addWidget(tab)
+
+        self.hotspotsMap = {
+            "Kozakov2015": ["Class", "S", "S0", "CD", "MD", "Length"],
+            "CS": ["S"],
+            "ACS": ["Class", "S", "MD"],
+            "Egbert2019": ["Fpocket", "S", "S0", "S1", "Length"],
+            "Fpocket": ["Pocket Score", "Drug Score"],
+        }
+        self.tables = {}
+        for key, props in self.hotspotsMap.items():
+            table = self.TableWidgetImpl(props)
+            self.tables[key] = table
+            tab.addTab(table, key)
+
+        exportButton = QPushButton(QIcon("save"), "Export Tables")
+        exportButton.clicked.connect(self.export)
+        layout.addWidget(exportButton)
+
+    def showEvent(self, event):
+        self.refresh()
+        super().showEvent(event)
+
+    def refresh(self):
+        for key, props in self.hotspotsMap.items():
+            self.tables[key].setSortingEnabled(False)
+
+            # remove old rows
+            while self.tables[key].rowCount() > 0:
+                self.tables[key].removeRow(0)
+
+            # append new rows
+            for obj in pm.get_object_list():
+                obj_type = pm.get_property("Type", obj)
+                if obj_type == key:
+                    self.appendRow(key, obj)
+
+            self.tables[key].setSortingEnabled(True)
+
+    def appendRow(self, key, obj):
+        self.tables[key].insertRow(self.tables[key].rowCount())
+        line = self.tables[key].rowCount() - 1
+
+        self.tables[key].setItem(line, 0, SortableItem(obj))
+
+        for idx, prop in enumerate(self.hotspotsMap[key]):
+            prop_value = pm.get_property(prop, obj)
+            self.tables[key].setItem(line, idx + 1, SortableItem(prop_value))
+
+    def export(self):
+        fileDialog = QFileDialog()
+        fileDialog.setNameFilter("Excel file (*.xlsx)")
+        fileDialog.setViewMode(QFileDialog.Detail)
+        fileDialog.setAcceptMode(QFileDialog.AcceptSave)
+        fileDialog.setDefaultSuffix(".xlsx")
+
+        if fileDialog.exec_():
+            filename = fileDialog.selectedFiles()[0]
+            ext = os.path.splitext(filename)[1]
+            with pd.ExcelWriter(filename) as xlsx_writer:
+                for key, props in self.hotspotsMap.items():
+                    data = {"Object": [], **{p: [] for p in props}}
+                    for header in data:
+                        column = list(data.keys()).index(header)
+                        for line in range(self.tables[key].rowCount()):
+                            item = self.tables[key].item(line, column)
+                            data[header].append(self.parse_item(item))
+                    df = pd.DataFrame(data)
+                    df.to_excel(xlsx_writer, sheet_name=key, index=False)
+
+    @staticmethod
+    def parse_item(item):
+        try:
+            item = int(item.text())
+        except ValueError:
             try:
-                return float(self.text()) < float(other.text())
+                item = float(item.text())
             except ValueError:
-                return self.text() < other.text()
-
-    class TableWidget(QWidget):
-
-        class TableWidgetImpl(QTableWidget):
-            def __init__(self, props):
-                super().__init__()
-                self.setSelectionBehavior(QTableWidget.SelectRows)
-                self.setSelectionMode(QTableWidget.SingleSelection)
-                self.setColumnCount(len(props) + 1)
-                self.setHorizontalHeaderLabels(["Object"] + props)
-                header = self.horizontalHeader()
-                for idx in range(len(props) + 1):
-                    header.setSectionResizeMode(
-                        idx, QHeaderView.ResizeMode.ResizeToContents
-                    )
-
-                @self.itemClicked.connect
-                def itemClicked(item):
-                    obj = self.item(item.row(), 0).text()
-                    pm.select(obj)
-                    pm.enable("sele")
-
-            def hideEvent(self, evt):
-                self.clearSelection()
-
-        def __init__(self):
-            super().__init__()
-
-            layout = QVBoxLayout()
-            self.setLayout(layout)
-
-            tab = QTabWidget()
-            layout.addWidget(tab)
-
-            self.hotspotsMap = {
-                "Kozakov2015": ["Class", "S", "S0", "CD", "MD", "Length"],
-                "CS": ["S"],
-                "ACS": ["Class", "S", "MD"],
-                "Egbert2019": ["Fpocket", "S", "S0", "S1", "Length"],
-                "Fpocket": ["Pocket Score", "Drug Score"],
-            }
-            self.tables = {}
-            for key, props in self.hotspotsMap.items():
-                table = self.TableWidgetImpl(props)
-                self.tables[key] = table
-                tab.addTab(table, key)
-
-            exportButton = QPushButton(QIcon("save"), "Export Tables")
-            exportButton.clicked.connect(self.export)
-            layout.addWidget(exportButton)
-
-        def showEvent(self, event):
-            self.refresh()
-            super().showEvent(event)
-
-        def refresh(self):
-            for key, props in self.hotspotsMap.items():
-                self.tables[key].setSortingEnabled(False)
-
-                # remove old rows
-                while self.tables[key].rowCount() > 0:
-                    self.tables[key].removeRow(0)
-
-                # append new rows
-                for obj in pm.get_object_list():
-                    obj_type = pm.get_property("Type", obj)
-                    if obj_type == key:
-                        self.appendRow(key, obj)
-
-                self.tables[key].setSortingEnabled(True)
-
-        def appendRow(self, key, obj):
-            self.tables[key].insertRow(self.tables[key].rowCount())
-            line = self.tables[key].rowCount() - 1
-
-            self.tables[key].setItem(line, 0, SortableItem(obj))
-
-            for idx, prop in enumerate(self.hotspotsMap[key]):
-                prop_value = pm.get_property(prop, obj)
-                self.tables[key].setItem(line, idx + 1, SortableItem(prop_value))
-
-        def export(self):
-            fileDialog = QFileDialog()
-            fileDialog.setNameFilter("Excel file (*.xlsx)")
-            fileDialog.setViewMode(QFileDialog.Detail)
-            fileDialog.setAcceptMode(QFileDialog.AcceptSave)
-            fileDialog.setDefaultSuffix(".xlsx")
-
-            if fileDialog.exec_():
-                filename = fileDialog.selectedFiles()[0]
-                ext = os.path.splitext(filename)[1]
-                with pd.ExcelWriter(filename) as xlsx_writer:
-                    for key, props in self.hotspotsMap.items():
-                        data = {"Object": [], **{p: [] for p in props}}
-                        for header in data:
-                            column = list(data.keys()).index(header)
-                            for line in range(self.tables[key].rowCount()):
-                                item = self.tables[key].item(line, column)
-                                data[header].append(self.parse_item(item))
-                        df = pd.DataFrame(data)
-                        df.to_excel(xlsx_writer, sheet_name=key, index=False)
-
-        @staticmethod
-        def parse_item(item):
-            try:
-                item = int(item.text())
-            except ValueError:
-                try:
-                    item = float(item.text())
-                except ValueError:
-                    item = item.text()
-            return item
-
-    class SimilarityWidget(QWidget):
-
-        def __init__(self):
-            super().__init__()
-
-            mainLayout = QVBoxLayout()
-            self.setLayout(mainLayout)
-
-            groupBox = QGroupBox("General")
-            mainLayout.addWidget(groupBox)
-            boxLayout = QFormLayout()
-            groupBox.setLayout(boxLayout)
-
-            self.hotspotExpressionLine = QLineEdit()
-            boxLayout.addRow("Hotspots:", self.hotspotExpressionLine)
-
-            layout = QHBoxLayout()
-            mainLayout.addLayout(layout)
-
-            groupBox = QGroupBox("Heatmap")
-            layout.addWidget(groupBox)
-            boxLayout = QFormLayout()
-            groupBox.setLayout(boxLayout)
-
-            self.functionCombo = QComboBox()
-            self.functionCombo.addItems([e.value for e in HeatmapFunction])
-            boxLayout.addRow("Function:", self.functionCombo)
-
-            self.radiusSpin = QSpinBox()
-            self.radiusSpin.setValue(2)
-            self.radiusSpin.setMinimum(1)
-            self.radiusSpin.setMaximum(5)
-            boxLayout.addRow("Radius:", self.radiusSpin)
-
-            self.annotateCheck = QCheckBox()
-            self.annotateCheck.setChecked(True)
-            boxLayout.addRow("Annotate:", self.annotateCheck)
-
-            plotButton = QPushButton("Plot")
-            plotButton.clicked.connect(self.plot_heatmap)
-            boxLayout.addWidget(plotButton)
-
-            groupBox = QGroupBox("Dendrogram")
-            layout.addWidget(groupBox)
-            boxLayout = QFormLayout()
-            groupBox.setLayout(boxLayout)
-
-            self.comWeightSpin = QDoubleSpinBox()
-            self.comWeightSpin.setValue(1.0)
-            self.comWeightSpin.setSingleStep(0.1)
-            self.comWeightSpin.setDecimals(1)
-            self.comWeightSpin.setMinimum(0)
-            self.comWeightSpin.setMaximum(20)
-            boxLayout.addRow("COM weight:", self.comWeightSpin)
-
-            self.residueRadiusSpin = QSpinBox()
-            self.residueRadiusSpin.setValue(4)
-            self.residueRadiusSpin.setMinimum(3)
-            self.residueRadiusSpin.setMaximum(5)
-            boxLayout.addRow("Residue radius:", self.residueRadiusSpin)
-
-            self.residueWeightSpin = QDoubleSpinBox()
-            self.residueWeightSpin.setValue(1.0)
-            self.residueWeightSpin.setSingleStep(0.1)
-            self.residueWeightSpin.setDecimals(1)
-            self.residueWeightSpin.setMinimum(0)
-            self.residueWeightSpin.setMaximum(20)
-            boxLayout.addRow("Residue weight:", self.residueWeightSpin)
-
-            self.linkageMethodCombo = QComboBox()
-            self.linkageMethodCombo.addItems([e.value for e in LinkageMethod])
-            boxLayout.addRow("Linkage:", self.linkageMethodCombo)
-
-            self.colorThresholdSpin = QDoubleSpinBox()
-            self.colorThresholdSpin.setValue(0.0)
-            self.colorThresholdSpin.setSingleStep(0.1)
-            self.colorThresholdSpin.setDecimals(1)
-            self.colorThresholdSpin.setMinimum(0)
-            boxLayout.addRow("Color threshold:", self.colorThresholdSpin)
-
-            plotButton = QPushButton("Plot")
-            plotButton.clicked.connect(self.plot_dendrogram)
-            boxLayout.addWidget(plotButton)
-
-        def plot_heatmap(self):
-            expression = self.hotspotExpressionLine.text()
-            function = self.functionCombo.currentText()
-            radius = self.radiusSpin.value()
-            annotate = self.annotateCheck.isChecked()
-
-            plot_heatmap(expression, function, radius, annotate)
-
-        def plot_dendrogram(self):
-            expression = self.hotspotExpressionLine.text()
-            com_weight = self.comWeightSpin.value()
-            residue_radius = self.residueRadiusSpin.value()
-            residue_weight = self.residueWeightSpin.value()
-            linkage_method = self.linkageMethodCombo.currentText()
-            color_threshold = self.colorThresholdSpin.value()
-
-            plot_dendrogram(
-                expression,
-                com_weight,
-                residue_radius,
-                residue_weight,
-                linkage_method,
-                color_threshold,
-            )
-
-    class CountWidget(QWidget):
-
-        def __init__(self):
-            super().__init__()
-
-            layout = QHBoxLayout()
-            self.setLayout(layout)
-
-            groupBox = QGroupBox("Residue projection")
-            layout.addWidget(groupBox)
-            boxLayout = QFormLayout()
-            groupBox.setLayout(boxLayout)
-
-            self.hotspotsExpressionLine = QLineEdit()
-            boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
-
-            self.proteinExpressionLine = QLineEdit()
-            boxLayout.addRow("Protein:", self.proteinExpressionLine)
-
-            self.radiusSpin = QSpinBox()
-            self.radiusSpin.setValue(3)
-            self.radiusSpin.setMinimum(2)
-            self.radiusSpin.setMaximum(5)
-            boxLayout.addRow("Radius:", self.radiusSpin)
-
-            self.typeCombo = QComboBox()
-            self.typeCombo.addItems([e.value for e in PrioritizationType])
-            boxLayout.addRow("Type:", self.typeCombo)
-
-            self.paletteLine = QLineEdit("rainbow")
-            boxLayout.addRow("Palette:", self.paletteLine)
-
-            drawButton = QPushButton("Draw")
-            drawButton.clicked.connect(self.draw_projection)
-            boxLayout.addWidget(drawButton)
-
-            groupBox = QGroupBox("Druggability fingerprint")
-            layout.addWidget(groupBox)
-            boxLayout = QFormLayout()
-            groupBox.setLayout(boxLayout)
-
-            self.hotspotsExpressionLine = QLineEdit("")
-            boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
-
-            self.refSiteExpressionLine = QLineEdit("")
-            boxLayout.addRow("Site:", self.refSiteExpressionLine)
-
-            self.radiusSpin = QSpinBox()
-            self.radiusSpin.setValue(3)
-            self.radiusSpin.setMinimum(2)
-            self.radiusSpin.setMaximum(5)
-            boxLayout.addRow("Radius:", self.radiusSpin)
-
-            self.nBinsSpin = QSpinBox()
-            self.nBinsSpin.setValue(15)
-            self.nBinsSpin.setMinimum(0)
-            self.nBinsSpin.setMaximum(50)
-            boxLayout.addRow("Fingerprint bins:", self.nBinsSpin)
-
-            self.fingerprintsCheck = QCheckBox()
-            self.fingerprintsCheck.setChecked(True)
-            boxLayout.addRow("Fingerprints:", self.fingerprintsCheck)
-
-            self.dendrogramCheck = QCheckBox()
-            self.dendrogramCheck.setChecked(False)
-            boxLayout.addRow("Dendrogram:", self.dendrogramCheck)
-
-            plotButton = QPushButton("Plot")
-            plotButton.clicked.connect(self.plot_fingerprint)
-            boxLayout.addWidget(plotButton)
-
-        def draw_projection(self):
-            hotspots = self.hotspotsExpressionLine.text()
-            protein = self.proteinExpressionLine.text()
-            radius = self.radiusSpin.value()
-            type = self.typeCombo.currentText()
-            palette = self.paletteLine.text()
-
-            hs_proj(hotspots, protein, radius, type, palette)
-
-        def plot_fingerprint(self):
-            hotspots = self.hotspotsExpressionLine.text()
-            ref_site = self.refSiteExpressionLine.text()
-            radius = self.radiusSpin.value()
-            fingerprints = self.fingerprintsCheck.isChecked()
-            dendrogram = self.dendrogramCheck.isChecked()
-            nbins = self.nBinsSpin.value()
-
-            fp_sim(
-                hotspots,
-                ref_site,
-                radius,
-                verbose=True,
-                plot_fingerprints=fingerprints,
-                plot_dendrogram=dendrogram,
-                plot_fingerprints_nbins=nbins,
-            )
-
-    class MainDialog(QDialog):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-
-            self.resize(600, 400)
-
-            layout = QVBoxLayout()
-            self.setLayout(layout)
-            self.setWindowTitle("XDrugPy")
-
-            tab = QTabWidget()
-            tab.addTab(LoadWidget(), "Load")
-            tab.addTab(TableWidget(), "Properties")
-            tab.addTab(SimilarityWidget(), "Hotspot Similarity")
-            tab.addTab(CountWidget(), "Probe Count")
-
-            layout.addWidget(tab)
+                item = item.text()
+        return item
+
+class SimilarityWidget(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        mainLayout = QVBoxLayout()
+        self.setLayout(mainLayout)
+
+        groupBox = QGroupBox("General")
+        mainLayout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.hotspotExpressionLine = QLineEdit()
+        boxLayout.addRow("Hotspots:", self.hotspotExpressionLine)
+
+        layout = QHBoxLayout()
+        mainLayout.addLayout(layout)
+
+        groupBox = QGroupBox("Heatmap")
+        layout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.functionCombo = QComboBox()
+        self.functionCombo.addItems([e.value for e in HeatmapFunction])
+        boxLayout.addRow("Function:", self.functionCombo)
+
+        self.radiusSpin = QSpinBox()
+        self.radiusSpin.setValue(2)
+        self.radiusSpin.setMinimum(1)
+        self.radiusSpin.setMaximum(5)
+        boxLayout.addRow("Radius:", self.radiusSpin)
+
+        self.annotateCheck = QCheckBox()
+        self.annotateCheck.setChecked(True)
+        boxLayout.addRow("Annotate:", self.annotateCheck)
+
+        plotButton = QPushButton("Plot")
+        plotButton.clicked.connect(self.plot_heatmap)
+        boxLayout.addWidget(plotButton)
+
+        groupBox = QGroupBox("Dendrogram")
+        layout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.comWeightSpin = QDoubleSpinBox()
+        self.comWeightSpin.setValue(1.0)
+        self.comWeightSpin.setSingleStep(0.1)
+        self.comWeightSpin.setDecimals(1)
+        self.comWeightSpin.setMinimum(0)
+        self.comWeightSpin.setMaximum(20)
+        boxLayout.addRow("COM weight:", self.comWeightSpin)
+
+        self.residueRadiusSpin = QSpinBox()
+        self.residueRadiusSpin.setValue(4)
+        self.residueRadiusSpin.setMinimum(3)
+        self.residueRadiusSpin.setMaximum(5)
+        boxLayout.addRow("Residue radius:", self.residueRadiusSpin)
+
+        self.residueWeightSpin = QDoubleSpinBox()
+        self.residueWeightSpin.setValue(1.0)
+        self.residueWeightSpin.setSingleStep(0.1)
+        self.residueWeightSpin.setDecimals(1)
+        self.residueWeightSpin.setMinimum(0)
+        self.residueWeightSpin.setMaximum(20)
+        boxLayout.addRow("Residue weight:", self.residueWeightSpin)
+
+        self.linkageMethodCombo = QComboBox()
+        self.linkageMethodCombo.addItems([e.value for e in LinkageMethod])
+        boxLayout.addRow("Linkage:", self.linkageMethodCombo)
+
+        self.colorThresholdSpin = QDoubleSpinBox()
+        self.colorThresholdSpin.setValue(0.0)
+        self.colorThresholdSpin.setSingleStep(0.1)
+        self.colorThresholdSpin.setDecimals(1)
+        self.colorThresholdSpin.setMinimum(0)
+        boxLayout.addRow("Color threshold:", self.colorThresholdSpin)
+
+        plotButton = QPushButton("Plot")
+        plotButton.clicked.connect(self.plot_dendrogram)
+        boxLayout.addWidget(plotButton)
+
+    def plot_heatmap(self):
+        expression = self.hotspotExpressionLine.text()
+        function = self.functionCombo.currentText()
+        radius = self.radiusSpin.value()
+        annotate = self.annotateCheck.isChecked()
+
+        plot_heatmap(expression, function, radius, annotate)
+
+    def plot_dendrogram(self):
+        expression = self.hotspotExpressionLine.text()
+        com_weight = self.comWeightSpin.value()
+        residue_radius = self.residueRadiusSpin.value()
+        residue_weight = self.residueWeightSpin.value()
+        linkage_method = self.linkageMethodCombo.currentText()
+        color_threshold = self.colorThresholdSpin.value()
+
+        plot_dendrogram(
+            expression,
+            com_weight,
+            residue_radius,
+            residue_weight,
+            linkage_method,
+            color_threshold,
+        )
+
+class CountWidget(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        layout = QHBoxLayout()
+        self.setLayout(layout)
+
+        groupBox = QGroupBox("Residue projection")
+        layout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.hotspotsExpressionLine = QLineEdit()
+        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
+
+        self.proteinExpressionLine = QLineEdit()
+        boxLayout.addRow("Protein:", self.proteinExpressionLine)
+
+        self.radiusSpin = QSpinBox()
+        self.radiusSpin.setValue(3)
+        self.radiusSpin.setMinimum(2)
+        self.radiusSpin.setMaximum(5)
+        boxLayout.addRow("Radius:", self.radiusSpin)
+
+        self.typeCombo = QComboBox()
+        self.typeCombo.addItems([e.value for e in PrioritizationType])
+        boxLayout.addRow("Type:", self.typeCombo)
+
+        self.paletteLine = QLineEdit("rainbow")
+        boxLayout.addRow("Palette:", self.paletteLine)
+
+        drawButton = QPushButton("Draw")
+        drawButton.clicked.connect(self.draw_projection)
+        boxLayout.addWidget(drawButton)
+
+        groupBox = QGroupBox("Druggability fingerprint")
+        layout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.hotspotsExpressionLine = QLineEdit("")
+        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
+
+        self.refSiteExpressionLine = QLineEdit("")
+        boxLayout.addRow("Site:", self.refSiteExpressionLine)
+
+        self.radiusSpin = QSpinBox()
+        self.radiusSpin.setValue(4)
+        self.radiusSpin.setMinimum(2)
+        self.radiusSpin.setMaximum(5)
+        boxLayout.addRow("Radius:", self.radiusSpin)
+
+        self.nBinsSpin = QSpinBox()
+        self.nBinsSpin.setValue(5)
+        self.nBinsSpin.setMinimum(0)
+        self.nBinsSpin.setMaximum(50)
+        boxLayout.addRow("Fingerprint bins:", self.nBinsSpin)
+
+        self.fingerprintsCheck = QCheckBox()
+        self.fingerprintsCheck.setChecked(True)
+        boxLayout.addRow("Fingerprints:", self.fingerprintsCheck)
+
+        self.dendrogramCheck = QCheckBox()
+        self.dendrogramCheck.setChecked(False)
+        boxLayout.addRow("Dendrogram:", self.dendrogramCheck)
+
+        plotButton = QPushButton("Plot")
+        plotButton.clicked.connect(self.plot_fingerprint)
+        boxLayout.addWidget(plotButton)
+
+    def draw_projection(self):
+        hotspots = self.hotspotsExpressionLine.text()
+        protein = self.proteinExpressionLine.text()
+        radius = self.radiusSpin.value()
+        type = self.typeCombo.currentText()
+        palette = self.paletteLine.text()
+
+        hs_proj(hotspots, protein, radius, type, palette)
+
+    def plot_fingerprint(self):
+        hotspots = self.hotspotsExpressionLine.text()
+        ref_site = self.refSiteExpressionLine.text()
+        radius = self.radiusSpin.value()
+        fingerprints = self.fingerprintsCheck.isChecked()
+        dendrogram = self.dendrogramCheck.isChecked()
+        nbins = self.nBinsSpin.value()
+
+        fp_sim(
+            hotspots,
+            ref_site,
+            radius,
+            verbose=True,
+            plot_fingerprints=fingerprints,
+            plot_dendrogram=dendrogram,
+            nbins=nbins,
+        )
+
+class MainDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.resize(600, 400)
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        self.setWindowTitle("XDrugPy")
+
+        tab = QTabWidget()
+        tab.addTab(LoadWidget(), "Load")
+        tab.addTab(TableWidget(), "Properties")
+        tab.addTab(SimilarityWidget(), "Hotspot Similarity")
+        tab.addTab(CountWidget(), "Probe Count")
+
+        layout.addWidget(tab)
 
 
 dialog = None
@@ -1590,4 +1579,5 @@ def __init_plugin__(app=None):
     addmenuitemqt("XDrugPy", run_plugin_gui)
 
 
-run_plugin_gui()
+# if __name__ in ["pymol", "pmg_tk.startup.XDrugPy"]:
+#     run_plugin_gui()
