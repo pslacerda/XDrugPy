@@ -250,10 +250,9 @@ def get_clusters():
             )
     return clusters, eclusters
 
-
-def get_kozakov2015(group, clusters, max_length=8):
+def get_kozakov2015(group, clusters, max_length):
     k15 = []
-    for length in range(1, max_length + 1):
+    for length in range(max_length, 1, -1):
         for combination in combinations(clusters, length):
             cd = []
             cluster1 = combination[0]
@@ -263,14 +262,18 @@ def get_kozakov2015(group, clusters, max_length=8):
                 cd.append(distance.euclidean(avg1, avg2))
 
             coords = np.concatenate([c.coords for c in combination])
+            max_coord = coords.max(axis=0)
+            min_coord = coords.min(axis=0)
+
+            selection = " or ".join(c.selection for c in combination)
             hs = SimpleNamespace(
-                selection=" or ".join(c.selection for c in combination),
+                selection=selection,
                 clusters=combination,
                 kozakov_class=None,
                 strength=sum(c.strength for c in combination),
                 strength0=combination[0].strength,
                 center_center=np.max(cd),
-                max_dist=distance_matrix(coords, coords).max(),
+                max_dist=distance.euclidean(max_coord, min_coord),
                 length=len(combination),
             )
             s0 = hs.clusters[0].strength
@@ -408,6 +411,8 @@ def get_egbert2019(group, fpo_list, clusters):
 def load_ftmap(
     filename: Path,
     group: str = "",
+    kozakov2015_max_length: int = 8,
+    fpocket: bool = True
 ):
     """
     Load a FTMap PDB file and classify hotspot ensembles in accordance to
@@ -438,11 +443,17 @@ def load_ftmap(
     pm.group(group, f"{group}.protein")
 
     clusters, eclusters = get_clusters()
-    k15_list = get_kozakov2015(group, clusters)
-    fpo_list = get_fpocket(group, f"{group}.protein")
+    k15_list = get_kozakov2015(group, clusters, kozakov2015_max_length)
+    if fpocket:
+        fpo_list = get_fpocket(group, f"{group}.protein")
+    else:
+        fpo_list = None
     process_clusters(group, clusters)
     process_eclusters(group, eclusters)
-    e19_list = get_egbert2019(group, fpo_list, clusters)
+    if fpocket:
+        e19_list = get_egbert2019(group, fpo_list, clusters)
+    else:
+        e19_list = None
 
     pm.hide("everything", f"{group}.*")
 
@@ -674,7 +685,7 @@ def fp_sim(
         for index in resi_map:
             model, mapped_index, resn, resi, chain = resi_map[index]
             cnt = count_molecules(
-                f"({hs}) within {radius} from (%{model} and index {mapped_index})"
+                f"({hs}) within {radius} from (byres %{model} and index {mapped_index})"
             )
             fpt.append(cnt)
             resn = ONE_LETTER.get(resn, 'X')
@@ -1083,7 +1094,7 @@ def plot_dendrogram(
             p1 = p[idx1, :]
             p2 = p[idx2, :]
             if residue_weight != 0:
-                j = res_sim(obj1, obj2, verbose=False)
+                j = res_sim(obj1, obj2, radius=residue_radius, verbose=False)
             else:
                 j = 0
             d = _euclidean_like(hs_type, p1, p2, j)
