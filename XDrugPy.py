@@ -383,8 +383,8 @@ def process_eclusters(group, eclusters):
     pm.delete("clust.*")
 
 
-def get_egbert2019(group, fpo_list, clusters):
-    e19 = []
+def get_egbert2021(group, fpo_list, clusters):
+    e21 = []
     idx = 0
     for i, pocket in enumerate(fpo_list):
         sel = f"byobject ({group}.CS_* within 4 of {pocket.selection})"
@@ -395,16 +395,16 @@ def get_egbert2019(group, fpo_list, clusters):
             pm.group(group, new_name)
 
             s_list = [pm.get_property("S", o) for o in objs]
-            pm.set_property("Type", "Egbert2019", new_name)
+            pm.set_property("Type", "Egbert2021", new_name)
             pm.set_property("Group", group, new_name)
             pm.set_property("Fpocket", pocket.selection, new_name)
             pm.set_property("S", sum(s_list), new_name)
             pm.set_property("S0", s_list[0])
             pm.set_property("S1", s_list[1])
             pm.set_property("Length", len(objs), new_name)
-            e19.append(SimpleNamespace(selection=new_name))
+            e21.append(SimpleNamespace(selection=new_name))
             idx += 1
-    return e19
+    return e21
 
 
 @declare_command
@@ -451,9 +451,9 @@ def load_ftmap(
     process_clusters(group, clusters)
     process_eclusters(group, eclusters)
     if fpocket:
-        e19_list = get_egbert2019(group, fpo_list, clusters)
+        e21_list = get_egbert2021(group, fpo_list, clusters)
     else:
-        e19_list = None
+        e21_list = None
 
     pm.hide("everything", f"{group}.*")
 
@@ -484,7 +484,7 @@ def load_ftmap(
         clusters=clusters,
         eclusters=eclusters,
         kozakov2015=k15_list,
-        egbert2019=e19_list,
+        egbert2021=e21_list,
         fpocket=fpo_list,
     )
 
@@ -1273,7 +1273,7 @@ class TableWidget(QWidget):
             "Kozakov2015": ["Class", "S", "S0", "CD", "MD", "Length"],
             "CS": ["S"],
             "ACS": ["Class", "S", "MD"],
-            "Egbert2019": ["Fpocket", "S", "S0", "S1", "Length"],
+            "Egbert2021": ["Fpocket", "S", "S0", "S1", "Length"],
             "Fpocket": ["Pocket Score", "Drug Score"],
         }
         self.tables = {}
