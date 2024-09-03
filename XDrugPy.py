@@ -300,12 +300,12 @@ def get_kozakov2015(group, clusters, max_length):
     k15 = list(k15)
 
     for idx, hs in enumerate(k15):
-        new_name = f"{group}.{hs.kozakov_class}_{idx:02}"
+        new_name = f"{group}.K15_{hs.kozakov_class}_{idx:02}"
         pm.create(new_name, hs.selection)
         pm.group(group, new_name)
         hs.selection = new_name
 
-        pm.set_property("Type", "Kozakov2015", new_name)
+        pm.set_property("Type", "K15", new_name)
         pm.set_property("Group", group, new_name)
         pm.set_property("Class", hs.kozakov_class, new_name)
         pm.set_property("S", hs.strength, new_name)
@@ -353,7 +353,7 @@ def get_fpocket(group, protein):
 
 def process_clusters(group, clusters):
     for idx, cs in enumerate(clusters):
-        new_name = f"{group}.CS_{idx:03}_{cs.strength:03}"
+        new_name = f"{group}.CS_{idx:03}"
         pm.create(new_name, cs.selection)
         pm.group(group, new_name)
 
@@ -367,7 +367,7 @@ def process_clusters(group, clusters):
 
 def process_eclusters(group, eclusters):
     for acs in eclusters:
-        new_name = f"{group}.ACS_{acs.probe_type}_{acs.idx:02}_{acs.strength:02}"
+        new_name = f"{group}.ACS_{acs.probe_type}_{acs.idx:02}"
         pm.create(new_name, acs.selection)
         pm.group(group, new_name)
 
@@ -383,19 +383,19 @@ def process_eclusters(group, eclusters):
     pm.delete("clust.*")
 
 
-def get_egbert2021(group, fpo_list, clusters):
+def get_egbert2021(group, fpo_list):
     e21 = []
     idx = 0
     for i, pocket in enumerate(fpo_list):
         sel = f"byobject ({group}.CS_* within 4 of {pocket.selection})"
         objs = pm.get_object_list(sel)
         if len(objs) > 3 and sum([pm.get_property("S", o) >= 16 for o in objs]) > 2:
-            new_name = f"{group}.C_{idx:02}"
+            new_name = f"{group}.E21_{idx:02}"
             pm.create(new_name, sel)
             pm.group(group, new_name)
 
             s_list = [pm.get_property("S", o) for o in objs]
-            pm.set_property("Type", "Egbert2021", new_name)
+            pm.set_property("Type", "E21", new_name)
             pm.set_property("Group", group, new_name)
             pm.set_property("Fpocket", pocket.selection, new_name)
             pm.set_property("S", sum(s_list), new_name)
@@ -451,21 +451,21 @@ def load_ftmap(
     process_clusters(group, clusters)
     process_eclusters(group, eclusters)
     if fpocket:
-        e21_list = get_egbert2021(group, fpo_list, clusters)
+        e21_list = get_egbert2021(group, fpo_list)
     else:
         e21_list = None
 
     pm.hide("everything", f"{group}.*")
 
     pm.show("cartoon", f"{group}.protein")
-    pm.show("mesh", f"{group}.D* or {group}.B*")
+    pm.show("mesh", f"{group}.K15_D* or {group}.K15_B*")
     pm.show("spheres", f"{group}.ACS_*")
     pm.show("spheres", f"{group}.fpocket_*")
     pm.set("sphere_scale", 0.25, f"{group}.ACS_*")
     pm.set("sphere_scale", 0.2, f"{group}.fpocket_*")
 
-    pm.color("red", f"{group}.D*")
-    pm.color("salmon", f"{group}.B*")
+    pm.color("red", f"{group}.K15_D*")
+    pm.color("salmon", f"{group}.K15_B*")
     pm.color("red", f"{group}.ACS_acceptor_*")
     pm.color("blue", f"{group}.ACS_donor_*")
     pm.color("green", f"{group}.ACS_halogen_*")
@@ -475,7 +475,7 @@ def load_ftmap(
 
     pm.disable(f"{group}.CS_*")
     pm.disable(f"{group}.fpocket_*")
-    pm.show("line", f"{group}.CS*")
+    pm.show("line", f"{group}.CS_*")
 
     pm.set("mesh_mode", 1)
     pm.orient("all")
@@ -1013,7 +1013,7 @@ def plot_dendrogram(
     def _get_property_vector(hs_type, obj):
         x, y, z = np.mean(pm.get_coords(obj), axis=0)
 
-        if hs_type == "Kozakov2015":
+        if hs_type == "K15":
             S = pm.get_property("S", obj)
             S0 = pm.get_property("S0", obj)
             CD = pm.get_property("CD", obj)
@@ -1028,7 +1028,7 @@ def plot_dendrogram(
             return np.array([S, MD, x, y, z])
 
     def _euclidean_like(hs_type, p1, p2, j):
-        if hs_type == "Kozakov2015":
+        if hs_type == "K15":
             return np.sqrt(
                 (p1[0] - p2[0]) ** 2
                 + (p1[1] - p2[1]) ** 2
@@ -1065,7 +1065,7 @@ def plot_dendrogram(
     assert len(set(pm.get_property("Type", o) for o in object_list)) == 1
 
     hs_type = pm.get_property("Type", object_list[0])
-    if hs_type == "Kozakov2015":
+    if hs_type == "K15":
         n_props = 4
     elif hs_type == "CS":
         n_props = 1
