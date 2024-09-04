@@ -635,7 +635,7 @@ def fp_sim(
         verbose           define verbosity
 
     EXAMPLES
-        fs_sim 8DSU.D_01* 6XHM.D_01*
+        fs_sim 8DSU.K15_D_01* 6XHM.K15_D_01*
         fs_sim 8DSU.CS_* 6XHM.CS_*, site=resi 8-101, nbins=10
     """
 
@@ -1270,17 +1270,17 @@ class TableWidget(QWidget):
         layout.addWidget(tab)
 
         self.hotspotsMap = {
-            "Kozakov2015": ["Class", "S", "S0", "CD", "MD", "Length"],
-            "CS": ["S"],
-            "ACS": ["Class", "S", "MD"],
-            "Egbert2021": ["Fpocket", "S", "S0", "S1", "Length"],
-            "Fpocket": ["Pocket Score", "Drug Score"],
+            ("Kozakov2015", "K15"): ["Class", "S", "S0", "CD", "MD", "Length"],
+            ("CS", "CS"): ["S"],
+            ("ACS", "ACS"): ["Class", "S", "MD"],
+            ("Egbert2021", "E21"): ["Fpocket", "S", "S0", "S1", "Length"],
+            ("Fpocket", "Fpocket"): ["Pocket Score", "Drug Score"],
         }
         self.tables = {}
-        for key, props in self.hotspotsMap.items():
+        for (title, key), props in self.hotspotsMap.items():
             table = self.TableWidgetImpl(props)
-            self.tables[key] = table
-            tab.addTab(table, key)
+            self.tables[title] = table
+            tab.addTab(table, title)
 
         exportButton = QPushButton(QIcon("save"), "Export Tables")
         exportButton.clicked.connect(self.export)
@@ -1291,30 +1291,30 @@ class TableWidget(QWidget):
         super().showEvent(event)
 
     def refresh(self):
-        for key, props in self.hotspotsMap.items():
-            self.tables[key].setSortingEnabled(False)
+        for (title, key), props in self.hotspotsMap.items():
+            self.tables[title].setSortingEnabled(False)
 
             # remove old rows
-            while self.tables[key].rowCount() > 0:
-                self.tables[key].removeRow(0)
+            while self.tables[title].rowCount() > 0:
+                self.tables[title].removeRow(0)
 
             # append new rows
             for obj in pm.get_object_list():
                 obj_type = pm.get_property("Type", obj)
                 if obj_type == key:
-                    self.appendRow(key, obj)
+                    self.appendRow(title, key, obj)
 
-            self.tables[key].setSortingEnabled(True)
+            self.tables[title].setSortingEnabled(True)
 
-    def appendRow(self, key, obj):
-        self.tables[key].insertRow(self.tables[key].rowCount())
-        line = self.tables[key].rowCount() - 1
+    def appendRow(self, title, key, obj):
+        self.tables[title].insertRow(self.tables[title].rowCount())
+        line = self.tables[title].rowCount() - 1
 
-        self.tables[key].setItem(line, 0, SortableItem(obj))
+        self.tables[title].setItem(line, 0, SortableItem(obj))
 
-        for idx, prop in enumerate(self.hotspotsMap[key]):
+        for idx, prop in enumerate(self.hotspotsMap[(title, key)]):
             prop_value = pm.get_property(prop, obj)
-            self.tables[key].setItem(line, idx + 1, SortableItem(prop_value))
+            self.tables[title].setItem(line, idx + 1, SortableItem(prop_value))
 
     def export(self):
         fileDialog = QFileDialog()
@@ -1327,15 +1327,15 @@ class TableWidget(QWidget):
             filename = fileDialog.selectedFiles()[0]
             ext = os.path.splitext(filename)[1]
             with pd.ExcelWriter(filename) as xlsx_writer:
-                for key, props in self.hotspotsMap.items():
+                for (title, key), props in self.hotspotsMap.items():
                     data = {"Object": [], **{p: [] for p in props}}
                     for header in data:
                         column = list(data.keys()).index(header)
-                        for line in range(self.tables[key].rowCount()):
-                            item = self.tables[key].item(line, column)
+                        for line in range(self.tables[title].rowCount()):
+                            item = self.tables[title].item(line, column)
                             data[header].append(self.parse_item(item))
                     df = pd.DataFrame(data)
-                    df.to_excel(xlsx_writer, sheet_name=key, index=False)
+                    df.to_excel(xlsx_writer, sheet_name=title, index=False)
 
     @staticmethod
     def parse_item(item):
