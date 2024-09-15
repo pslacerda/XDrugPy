@@ -119,12 +119,29 @@ __all__ = [
 
 matplotlib.use("Qt5Agg")
 
-ONE_LETTER ={
-    'VAL':'V', 'ILE':'I', 'LEU':'L', 'GLU':'E', 'GLN':'Q',
-    'ASP':'D', 'ASN':'N', 'HIS':'H', 'TRP':'W', 'PHE':'F',
-    'TYR':'Y', 'ARG':'R', 'LYS':'K', 'SER':'S', 'THR':'T',
-    'MET':'M', 'ALA':'A', 'GLY':'G', 'PRO':'P', 'CYS':'C'
+ONE_LETTER = {
+    "VAL": "V",
+    "ILE": "I",
+    "LEU": "L",
+    "GLU": "E",
+    "GLN": "Q",
+    "ASP": "D",
+    "ASN": "N",
+    "HIS": "H",
+    "TRP": "W",
+    "PHE": "F",
+    "TYR": "Y",
+    "ARG": "R",
+    "LYS": "K",
+    "SER": "S",
+    "THR": "T",
+    "MET": "M",
+    "ALA": "A",
+    "GLY": "G",
+    "PRO": "P",
+    "CYS": "C",
 }
+
 
 class Selection(str):
     pass
@@ -250,6 +267,7 @@ def get_clusters():
             )
     return clusters, eclusters
 
+
 def get_kozakov2015(group, clusters, max_length):
     k15 = []
     for length in range(max_length, 1, -1):
@@ -322,18 +340,14 @@ def get_fpocket(group, protein):
     with tempfile.TemporaryDirectory() as tempdir:
         protein_pdb = f"{tempdir}/{group}.pdb"
         pm.save(protein_pdb, selection=protein)
-        subprocess.check_call(
+        subprocess.check_output(
             [fpocket_bin, "-f", protein_pdb],
             env={"TMPDIR": tempdir},
         )
         header_re = re.compile(r"^HEADER\s+\d+\s+-(.*):(.*)$")
         path = Path(tempdir)
         for pocket_pdb in path.glob(f"{group}_out/pockets/pocket*_atm.pdb"):
-            idx = (
-                pocket_pdb.name
-                .replace("pocket", "")
-                .replace("_atm.pdb", "")
-            )
+            idx = pocket_pdb.name.replace("pocket", "").replace("_atm.pdb", "")
             idx = int(idx)
             pocket = SimpleNamespace(selection=f"{group}.fpocket_{idx:02}")
             pm.delete(pocket.selection)
@@ -347,13 +361,12 @@ def get_fpocket(group, protein):
                     setattr(pocket, prop, value)
                     pm.set_property(prop, value, pocket.selection)
             pockets.append(pocket)
-
     return pockets
 
 
 def process_clusters(group, clusters):
     for idx, cs in enumerate(clusters):
-        new_name = f"{group}.CS_{idx:03}"
+        new_name = f"{group}.CS_{idx:02}"
         pm.create(new_name, cs.selection)
         pm.group(group, new_name)
 
@@ -387,7 +400,7 @@ def get_egbert2021(group, fpo_list):
     e21 = []
     idx = 0
     for i, pocket in enumerate(fpo_list):
-        sel = f"byobject ({group}.CS_* within 4 of {pocket.selection})"
+        sel = f"byobject ({group}.CS_* within 3 of {pocket.selection})"
         objs = pm.get_object_list(sel)
         if len(objs) > 3 and sum([pm.get_property("S", o) >= 16 for o in objs]) > 2:
             new_name = f"{group}.E21_{idx:02}"
@@ -395,14 +408,19 @@ def get_egbert2021(group, fpo_list):
             pm.group(group, new_name)
 
             s_list = [pm.get_property("S", o) for o in objs]
-            pm.set_property("Type", "E21", new_name)
-            pm.set_property("Group", group, new_name)
-            pm.set_property("Fpocket", pocket.selection, new_name)
-            pm.set_property("S", sum(s_list), new_name)
-            pm.set_property("S0", s_list[0])
-            pm.set_property("S1", s_list[1])
-            pm.set_property("Length", len(objs), new_name)
-            e21.append(SimpleNamespace(selection=new_name))
+            hs = SimpleNamespace(selection=new_name)
+            for key, value in [
+                ("Type", "E21"),
+                ("Group", group),
+                ("Fpocket", pocket.selection),
+                ("S", sum(s_list)),
+                ("S0", s_list[0]),
+                ("S1", s_list[1]),
+                ("Length", len(objs)),
+            ]:
+                pm.set_property(key, value, new_name)
+                setattr(hs, key, value)
+            e21.append(hs)
             idx += 1
     return e21
 
@@ -412,7 +430,7 @@ def load_ftmap(
     filename: Path,
     group: str = "",
     kozakov2015_max_length: int = 8,
-    fpocket: bool = True
+    fpocket: bool = True,
 ):
     """
     Load a FTMap PDB file and classify hotspot ensembles in accordance to
@@ -459,6 +477,8 @@ def load_ftmap(
 
     pm.show("cartoon", f"{group}.protein")
     pm.show("mesh", f"{group}.K15_D* or {group}.K15_B*")
+    pm.show("mesh", f"{group}.E21_*")
+
     pm.show("spheres", f"{group}.ACS_*")
     pm.show("spheres", f"{group}.fpocket_*")
     pm.set("sphere_scale", 0.25, f"{group}.ACS_*")
@@ -466,6 +486,7 @@ def load_ftmap(
 
     pm.color("red", f"{group}.K15_D*")
     pm.color("salmon", f"{group}.K15_B*")
+    pm.color("yellow", f"{group}.E21_*")
     pm.color("red", f"{group}.ACS_acceptor_*")
     pm.color("blue", f"{group}.ACS_donor_*")
     pm.color("green", f"{group}.ACS_halogen_*")
@@ -618,6 +639,7 @@ def fp_sim(
     nbins: int = 5,
     plot_dendrogram: bool = False,
     linkage_method: LinkageMethod = LinkageMethod.SINGLE,
+    align: bool = True,
     verbose: bool = True,
 ):
     """
@@ -656,29 +678,39 @@ def fp_sim(
     pm.iterate(
         f"({p0}) and name CA and ({site})",
         "site_index.add(index)",
-        space={"site_index": site_index}
+        space={"site_index": site_index},
     )
 
     def get_resi_map(p1, p2):
-        try:
-            aln_obj = pm.get_unused_name()
-            pm.cealign(p1, p2, transform=0, object=aln_obj)
-            raw = pm.get_raw_alignment(aln_obj)
-        finally:
-            pm.delete(aln_obj)
-        resis2 = {}
-        pm.iterate(
-            p2,
-            "resis2[index] = (model, index, resn, resi, chain)",
-            space={"resis2": resis2},
-        )
-        resis_map = {}
-        for (model1, idx1), (model2, idx2) in raw:
-            if idx1 not in site_index:
-                continue
-            resis_map[idx1] = resis2[idx2]
-        return resis_map
-    
+        if p1 == p2 or not align:
+            resis = {}
+            pm.iterate(
+                p1,
+                "resis[index] = (model, index, resn, resi, chain)",
+                space={"resis": resis},
+            )
+            resis = {i: resis[i] for i in resis if i in site_index}
+            return resis
+        else:
+            try:
+                aln_obj = pm.get_unused_name()
+                pm.cealign(p1, p2, transform=0, object=aln_obj)
+                raw = pm.get_raw_alignment(aln_obj)
+            finally:
+                pm.delete(aln_obj)
+            resis2 = {}
+            pm.iterate(
+                p2,
+                "resis2[index] = (model, index, resn, resi, chain)",
+                space={"resis2": resis2},
+            )
+            resis_map = {}
+            for (model1, idx1), (model2, idx2) in raw:
+                if idx1 not in site_index:
+                    continue
+                resis_map[idx1] = resis2[idx2]
+            return resis_map
+
     def calc_fp(hs, resi_map):
         fpt = []
         labels = []
@@ -688,7 +720,7 @@ def fp_sim(
                 f"({hs}) within {radius} from (byres %{model} and index {mapped_index})"
             )
             fpt.append(cnt)
-            resn = ONE_LETTER.get(resn, 'X')
+            resn = ONE_LETTER.get(resn, "X")
             labels.append(f"{resn}{resi}{chain}")
         return fpt, labels
 
@@ -703,28 +735,29 @@ def fp_sim(
 
     plt.close()
     if plot_fingerprints and plot_dendrogram:
-        fig, axd = plt.subplot_mosaic(list(
-            zip(range(len(proteins)), ["DENDRO"] * len(proteins))
-        ))
+        fig, axd = plt.subplot_mosaic(
+            list(zip(range(len(proteins)), ["DENDRO"] * len(proteins)))
+        )
     elif plot_fingerprints and not plot_dendrogram:
         fig, axd = plt.subplot_mosaic(list(zip(range(len(proteins)))))
     elif not plot_fingerprints and plot_dendrogram:
         fig, axd = plt.subplot_mosaic([["DENDRO"]])
-        
+
     fp_list = []
     for i, (p, hs) in enumerate(zip(proteins, hotspots)):
-        fp, lbl = calc_fp(hs, get_resi_map(p0, p))
+        resi_map = get_resi_map(p0, p)
+        fp, lbl = calc_fp(hs, resi_map)
         fp_list.append(fp)
         if plot_fingerprints:
             plot_fp(fp, lbl, hs, axd[i])
-    
+
     fp0 = fp_list[0]
     if not all([len(fp0) == len(fp) for fp in fp_list]):
         raise ValueError(
             "All fingerprints must have the same length. "
             "Do you have incomplete structures?"
         )
-    
+
     if verbose or plot_dendrogram:
         cor_list = []
         for idx1, (fp1, hs1) in enumerate(zip(fp_list, hotspots)):
@@ -737,7 +770,7 @@ def fp_sim(
                 cor_list.append(cor)
                 if verbose:
                     print(f"Pearson correlation: {hs1} / {hs2}: {cor:.2f}")
-            
+
         if plot_dendrogram:
             dendrogram(
                 linkage([1 - c for c in cor_list], method=linkage_method),
@@ -746,7 +779,7 @@ def fp_sim(
                 leaf_rotation=45,
                 color_threshold=0,
             )
-    
+
     plt.tight_layout()
     plt.show()
     return fp_list
@@ -791,6 +824,7 @@ def res_sim(
     hs1: Selection,
     hs2: Selection,
     radius: int = 2,
+    align: bool = True,
     method: ResidueSimilarityMethod = ResidueSimilarityMethod.JACCARD,
     verbose: bool = True,
 ):
@@ -819,7 +853,7 @@ def res_sim(
     resis1 = set()
     pm.iterate(sel1, "resis1.add((chain, resi))", space={"resis1": resis1})
 
-    if group1 == group2:
+    if group1 == group2 or not align:
         resis2 = set()
         pm.iterate(sel2, "resis2.add((chain, resi))", space={"resis2": resis2})
     else:
@@ -869,6 +903,7 @@ def plot_heatmap(
     objs: Selection,
     method: HeatmapFunction = HeatmapFunction.HO,
     radius: float = 2.0,
+    align: bool = True,
     annotate: bool = False,
 ):
     """
@@ -876,13 +911,13 @@ def plot_heatmap(
 
     OPTIONS
         objs        space separated list of object expressions
-        method      ho, residue_jaccard, or residue_overlap (default: ho) 
+        method      ho, residue_jaccard, or residue_overlap (default: ho)
         radius      the radius to consider atoms in contact (default: 2.0)
         annotate    fill the cells with values
 
     EXAMPLES
         cross_measure *.D_000_*_*, function=residue_jaccard
-        cross_measure *.D_*
+        cross_measure *.D_*. align=True
         cross_measure *.D_000_*_* *.DS_*
     """
     objs = objs.split(" ")
@@ -916,9 +951,13 @@ def plot_heatmap(
                     case HeatmapFunction.HO:
                         ret = ho(obj1, obj2, radius=radius, verbose=False)
                     case HeatmapFunction.RESIDUE_JACCARD:
-                        ret = res_sim(obj1, obj2, radius=radius, method="jaccard", verbose=False)
+                        ret = res_sim(
+                            obj1, obj2, radius=radius, method="jaccard", align=align, verbose=False
+                        )
                     case HeatmapFunction.RESIDUE_OVERLAP:
-                        ret = res_sim(obj1, obj2, radius=radius, method="overlap", verbose=False)
+                        ret = res_sim(
+                            obj1, obj2, radius=radius, method="overlap", align=align, verbose=False
+                        )
             mat[-1].append(round(ret, 2))
 
     plt.close()
@@ -994,6 +1033,7 @@ def plot_dendrogram(
     com_weight: float = 1,
     residue_radius: int = 4,
     residue_weight: float = 1,
+    residue_align: bool = True,
     linkage_method: LinkageMethod = LinkageMethod.SINGLE,
     color_threshold: float = 0,
 ):
@@ -1094,7 +1134,7 @@ def plot_dendrogram(
             p1 = p[idx1, :]
             p2 = p[idx2, :]
             if residue_weight != 0:
-                j = res_sim(obj1, obj2, radius=residue_radius, verbose=False)
+                j = res_sim(obj1, obj2, radius=residue_radius, align=residue_align, verbose=False)
             else:
                 j = 0
             d = _euclidean_like(hs_type, p1, p2, j)
@@ -1225,6 +1265,7 @@ class LoadWidget(QWidget):
         finally:
             self.clearRows()
 
+
 class SortableItem(QTableWidgetItem):
     def __init__(self, obj):
         super().__init__(str(obj))
@@ -1235,6 +1276,7 @@ class SortableItem(QTableWidgetItem):
             return float(self.text()) < float(other.text())
         except ValueError:
             return self.text() < other.text()
+
 
 class TableWidget(QWidget):
 
@@ -1348,6 +1390,7 @@ class TableWidget(QWidget):
                 item = item.text()
         return item
 
+
 class SimilarityWidget(QWidget):
 
     def __init__(self):
@@ -1381,6 +1424,10 @@ class SimilarityWidget(QWidget):
         self.radiusSpin.setMinimum(1)
         self.radiusSpin.setMaximum(5)
         boxLayout.addRow("Radius:", self.radiusSpin)
+
+        self.heatmapAlignCheck = QCheckBox()
+        self.heatmapAlignCheck.setChecked(True)
+        boxLayout.addRow("Align:", self.heatmapAlignCheck)
 
         self.annotateCheck = QCheckBox()
         self.annotateCheck.setChecked(True)
@@ -1417,6 +1464,10 @@ class SimilarityWidget(QWidget):
         self.residueWeightSpin.setMaximum(20)
         boxLayout.addRow("Residue weight:", self.residueWeightSpin)
 
+        self.resiudeAlignCheck = QCheckBox()
+        self.resiudeAlignCheck.setChecked(True)
+        boxLayout.addRow("Residue Align:", self.resiudeAlignCheck)
+
         self.linkageMethodCombo = QComboBox()
         self.linkageMethodCombo.addItems([e.value for e in LinkageMethod])
         boxLayout.addRow("Linkage:", self.linkageMethodCombo)
@@ -1437,14 +1488,16 @@ class SimilarityWidget(QWidget):
         function = self.functionCombo.currentText()
         radius = self.radiusSpin.value()
         annotate = self.annotateCheck.isChecked()
+        align = self.heatmapAlignCheck.isChecked()
 
-        plot_heatmap(expression, function, radius, annotate)
+        plot_heatmap(expression, function, radius, align, annotate)
 
     def plot_dendrogram(self):
         expression = self.hotspotExpressionLine.text()
         com_weight = self.comWeightSpin.value()
         residue_radius = self.residueRadiusSpin.value()
         residue_weight = self.residueWeightSpin.value()
+        residue_align = self.residueWeightSpin.isChecked()
         linkage_method = self.linkageMethodCombo.currentText()
         color_threshold = self.colorThresholdSpin.value()
 
@@ -1453,9 +1506,11 @@ class SimilarityWidget(QWidget):
             com_weight,
             residue_radius,
             residue_weight,
+            residue_align,
             linkage_method,
-            color_threshold,
+            color_threshold
         )
+
 
 class CountWidget(QWidget):
 
@@ -1501,8 +1556,8 @@ class CountWidget(QWidget):
         self.hotspotsExpressionLine = QLineEdit("")
         boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
 
-        self.refSiteExpressionLine = QLineEdit("")
-        boxLayout.addRow("Site:", self.refSiteExpressionLine)
+        self.siteExpressionLine = QLineEdit("")
+        boxLayout.addRow("Site:", self.siteExpressionLine)
 
         self.radiusSpin = QSpinBox()
         self.radiusSpin.setValue(4)
@@ -1524,6 +1579,10 @@ class CountWidget(QWidget):
         self.dendrogramCheck.setChecked(False)
         boxLayout.addRow("Dendrogram:", self.dendrogramCheck)
 
+        self.alignCheck = QCheckBox()
+        self.alignCheck.setChecked(True)
+        boxLayout.addRow("Align:", self.alignCheck)
+
         plotButton = QPushButton("Plot")
         plotButton.clicked.connect(self.plot_fingerprint)
         boxLayout.addWidget(plotButton)
@@ -1539,21 +1598,24 @@ class CountWidget(QWidget):
 
     def plot_fingerprint(self):
         hotspots = self.hotspotsExpressionLine.text()
-        ref_site = self.refSiteExpressionLine.text()
+        site = self.siteExpressionLine.text()
         radius = self.radiusSpin.value()
         fingerprints = self.fingerprintsCheck.isChecked()
         dendrogram = self.dendrogramCheck.isChecked()
         nbins = self.nBinsSpin.value()
+        align = self.alignCheck.isChecked()
 
         fp_sim(
             hotspots,
-            ref_site,
+            site,
             radius,
             verbose=True,
             plot_fingerprints=fingerprints,
             plot_dendrogram=dendrogram,
             nbins=nbins,
+            align=align
         )
+
 
 class MainDialog(QDialog):
     def __init__(self, parent=None):
