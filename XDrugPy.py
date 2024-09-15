@@ -955,11 +955,21 @@ def plot_heatmap(
                         ret = ho(obj1, obj2, radius=radius, verbose=False)
                     case HeatmapFunction.RESIDUE_JACCARD:
                         ret = res_sim(
-                            obj1, obj2, radius=radius, method="jaccard", align=align, verbose=False
+                            obj1,
+                            obj2,
+                            radius=radius,
+                            method="jaccard",
+                            align=align,
+                            verbose=False,
                         )
                     case HeatmapFunction.RESIDUE_OVERLAP:
                         ret = res_sim(
-                            obj1, obj2, radius=radius, method="overlap", align=align, verbose=False
+                            obj1,
+                            obj2,
+                            radius=radius,
+                            method="overlap",
+                            align=align,
+                            verbose=False,
                         )
             mat[-1].append(round(ret, 2))
 
@@ -1137,7 +1147,13 @@ def plot_dendrogram(
             p1 = p[idx1, :]
             p2 = p[idx2, :]
             if residue_weight != 0:
-                j = res_sim(obj1, obj2, radius=residue_radius, align=residue_align, verbose=False)
+                j = res_sim(
+                    obj1,
+                    obj2,
+                    radius=residue_radius,
+                    align=residue_align,
+                    verbose=False,
+                )
             else:
                 j = 0
             d = _euclidean_like(hs_type, p1, p2, j)
@@ -1271,7 +1287,7 @@ class LoadWidget(QWidget):
                         filename,
                         group=group,
                         k15_max_length=max_length,
-                        fpocket=fpocket
+                        fpocket=fpocket,
                     )
                 except Exception:
                     try:
@@ -1279,7 +1295,7 @@ class LoadWidget(QWidget):
                             filename,
                             group=group,
                             k15_max_length=max_length,
-                            fpocket=fpocket
+                            fpocket=fpocket,
                         )
                     except Exception:
                         if not os.path.exists(filename):
@@ -1532,7 +1548,7 @@ class SimilarityWidget(QWidget):
             residue_weight,
             residue_align,
             linkage_method,
-            color_threshold
+            color_threshold,
         )
 
 
@@ -1637,7 +1653,7 @@ class CountWidget(QWidget):
             plot_fingerprints=fingerprints,
             plot_dendrogram=dendrogram,
             nbins=nbins,
-            align=align
+            align=align,
         )
 
 
