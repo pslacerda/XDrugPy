@@ -340,7 +340,7 @@ def get_fpocket(group, protein):
     with tempfile.TemporaryDirectory() as tempdir:
         protein_pdb = f"{tempdir}/{group}.pdb"
         pm.save(protein_pdb, selection=protein)
-        subprocess.check_output(
+        subprocess.check_call(
             [fpocket_bin, "-f", protein_pdb],
             env={"TMPDIR": tempdir},
         )
