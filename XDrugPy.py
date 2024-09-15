@@ -1216,6 +1216,21 @@ class LoadWidget(QWidget):
         loadButton.clicked.connect(self.load)
         addRemoveLayout.addWidget(loadButton)
 
+        groupBox = QGroupBox("Options")
+        layout.addWidget(groupBox)
+        boxLayout = QFormLayout()
+        groupBox.setLayout(boxLayout)
+
+        self.maxLengthSpin = QSpinBox()
+        self.maxLengthSpin.setValue(8)
+        self.maxLengthSpin.setMinimum(3)
+        self.maxLengthSpin.setMaximum(8)
+        boxLayout.addRow("Max length:", self.maxLengthSpin)
+
+        self.fpocketCheck = QCheckBox()
+        self.fpocketCheck.setChecked(True)
+        boxLayout.addRow("Run Fpocket:", self.fpocketCheck)
+
     def pickFile(self):
         fileDIalog = QFileDialog()
         fileDIalog.setFileMode(QFileDialog.ExistingFiles)
@@ -1245,6 +1260,8 @@ class LoadWidget(QWidget):
         self.table.setRowCount(0)
 
     def load(self):
+        max_length = self.maxLengthSpin.value()
+        fpocket = self.fpocketCheck.isChecked()
         try:
             for row in range(self.table.rowCount()):
                 group = self.table.item(row, 0).text()
@@ -1253,12 +1270,16 @@ class LoadWidget(QWidget):
                     load_ftmap(
                         filename,
                         group=group,
+                        k15_max_length=max_length,
+                        fpocket=fpocket
                     )
                 except Exception:
                     try:
                         load_ftmap(
                             filename,
                             group=group,
+                            k15_max_length=max_length,
+                            fpocket=fpocket
                         )
                     except Exception:
                         if not os.path.exists(filename):
