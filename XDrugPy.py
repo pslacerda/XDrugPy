@@ -396,21 +396,21 @@ def process_eclusters(group, eclusters):
     pm.delete("clust.*")
 
 
-def get_egbert2021(group, fpo_list):
-    e21 = []
+def get_egbert2019(group, fpo_list):
+    e19 = []
     idx = 0
     for i, pocket in enumerate(fpo_list):
         sel = f"byobject ({group}.CS_* within 3 of {pocket.selection})"
         objs = pm.get_object_list(sel)
         if len(objs) > 3 and sum([pm.get_property("S", o) >= 16 for o in objs]) > 2:
-            new_name = f"{group}.E21_{idx:02}"
+            new_name = f"{group}.E19_{idx:02}"
             pm.create(new_name, sel)
             pm.group(group, new_name)
 
             s_list = [pm.get_property("S", o) for o in objs]
             hs = SimpleNamespace(selection=new_name)
             for key, value in [
-                ("Type", "E21"),
+                ("Type", "E19"),
                 ("Group", group),
                 ("Fpocket", pocket.selection),
                 ("S", sum(s_list)),
@@ -420,9 +420,9 @@ def get_egbert2021(group, fpo_list):
             ]:
                 pm.set_property(key, value, new_name)
                 setattr(hs, key, value)
-            e21.append(hs)
+            e19.append(hs)
             idx += 1
-    return e21
+    return e19
 
 
 @declare_command
@@ -469,15 +469,15 @@ def load_ftmap(
     process_clusters(group, clusters)
     process_eclusters(group, eclusters)
     if fpocket:
-        e21_list = get_egbert2021(group, fpo_list)
+        e19_list = get_egbert2019(group, fpo_list)
     else:
-        e21_list = None
+        e19_list = None
 
     pm.hide("everything", f"{group}.*")
 
     pm.show("cartoon", f"{group}.protein")
     pm.show("mesh", f"{group}.K15_D* or {group}.K15_B*")
-    pm.show("mesh", f"{group}.E21_*")
+    pm.show("mesh", f"{group}.E19_*")
 
     pm.show("spheres", f"{group}.ACS_*")
     pm.show("spheres", f"{group}.fpocket_*")
@@ -486,7 +486,7 @@ def load_ftmap(
 
     pm.color("red", f"{group}.K15_D*")
     pm.color("salmon", f"{group}.K15_B*")
-    pm.color("yellow", f"{group}.E21_*")
+    pm.color("yellow", f"{group}.E19_*")
     pm.color("red", f"{group}.ACS_acceptor_*")
     pm.color("blue", f"{group}.ACS_donor_*")
     pm.color("green", f"{group}.ACS_halogen_*")
@@ -505,7 +505,7 @@ def load_ftmap(
         clusters=clusters,
         eclusters=eclusters,
         kozakov2015=k15_list,
-        egbert2021=e21_list,
+        egbert2019=e19_list,
         fpocket=fpo_list,
     )
 
@@ -1315,7 +1315,7 @@ class TableWidget(QWidget):
             ("Kozakov2015", "K15"): ["Class", "S", "S0", "CD", "MD", "Length"],
             ("CS", "CS"): ["S"],
             ("ACS", "ACS"): ["Class", "S", "MD"],
-            ("Egbert2021", "E21"): ["Fpocket", "S", "S0", "S1", "Length"],
+            ("Egbert2019", "E19"): ["Fpocket", "S", "S0", "S1", "Length"],
             ("Fpocket", "Fpocket"): ["Pocket Score", "Drug Score"],
         }
         self.tables = {}
