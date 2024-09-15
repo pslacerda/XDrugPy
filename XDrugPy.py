@@ -429,7 +429,7 @@ def get_egbert2019(group, fpo_list):
 def load_ftmap(
     filename: Path,
     group: str = "",
-    kozakov2015_max_length: int = 8,
+    k15_max_length: int = 8,
     fpocket: bool = True,
 ):
     """
@@ -438,12 +438,15 @@ def load_ftmap(
     https://doi.org/10.1021/acs.jmedchem.5b00586
 
     OPTIONS
-        filename    mapping PDB file.
-        group       optional group name.
+        filename        mapping PDB file.
+        group           optional group name.
+        k15_max_length  max hotspot length for Kozakov15 hotspots (default: 8).
+        fpocket         Flag to enable Fpocket calculation (defualt: True)
 
     EXAMPLES
         load_ftmap ace_example.pdb
         load_ftmap ace_example.pdb, group=MyProtein
+        load_ftmap 3PO1.pdb, k15_max_length=5
     """
     if not group:
         group = os.path.splitext(os.path.basename(filename))[0]
@@ -461,7 +464,7 @@ def load_ftmap(
     pm.group(group, f"{group}.protein")
 
     clusters, eclusters = get_clusters()
-    k15_list = get_kozakov2015(group, clusters, kozakov2015_max_length)
+    k15_list = get_kozakov2015(group, clusters, k15_max_length)
     if fpocket:
         fpo_list = get_fpocket(group, f"{group}.protein")
     else:
