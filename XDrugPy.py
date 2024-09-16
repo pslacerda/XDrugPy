@@ -1537,7 +1537,7 @@ class SimilarityWidget(QWidget):
         com_weight = self.comWeightSpin.value()
         residue_radius = self.residueRadiusSpin.value()
         residue_weight = self.residueWeightSpin.value()
-        residue_align = self.residueWeightSpin.isChecked()
+        residue_align = self.resiudeAlignCheck.isChecked()
         linkage_method = self.linkageMethodCombo.currentText()
         color_threshold = self.colorThresholdSpin.value()
 
