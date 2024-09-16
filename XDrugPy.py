@@ -92,6 +92,7 @@ from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -684,75 +685,84 @@ def fp_sim(
         space={"site_index": site_index},
     )
 
-    def get_resi_map(p1, p2):
-        if p1 == p2 or not align:
-            resis = {}
-            pm.iterate(
-                p1,
-                "resis[index] = (model, index, resn, resi, chain)",
-                space={"resis": resis},
+    plt.close()
+    if plot_dendrogram or plot_fingerprints:
+        if plot_fingerprints and plot_dendrogram:
+            fig, axd = plt.subplot_mosaic(
+                list(zip(range(len(proteins)), ["DENDRO"] * len(proteins)))
             )
-            resis = {i: resis[i] for i in resis if i in site_index}
-            return resis
-        else:
+        elif plot_fingerprints and not plot_dendrogram:
+            fig, axd = plt.subplot_mosaic(list(zip(range(len(proteins)))))
+        elif not plot_fingerprints and plot_dendrogram:
+            fig, axd = plt.subplot_mosaic([["DENDRO"]])
+
+    # Find the equivalent residues
+    if not align or all(p0 == p for p in proteins):
+        # Don't align, use the residues of the first protein
+        resis = {}
+        pm.iterate(
+            p0,
+            "resis[index] = (model, index, resn, resi, chain)",
+            space={"resis": resis},
+        )
+        resi_map = {i: resis[i] for i in resis if i in site_index}
+        resi_map_list = [resi_map] * len(proteins)
+    else:
+        # Align protein structures, very tricky
+        resi_map_list = []
+        for p in proteins:
             try:
                 aln_obj = pm.get_unused_name()
-                pm.cealign(p1, p2, transform=0, object=aln_obj)
+                pm.cealign(p0, p, transform=0, object=aln_obj)
                 raw = pm.get_raw_alignment(aln_obj)
             finally:
                 pm.delete(aln_obj)
             resis2 = {}
             pm.iterate(
-                p2,
+                p,
                 "resis2[index] = (model, index, resn, resi, chain)",
                 space={"resis2": resis2},
             )
-            resis_map = {}
+            resi_map = {}
             for (model1, idx1), (model2, idx2) in raw:
                 if idx1 not in site_index:
                     continue
-                resis_map[idx1] = resis2[idx2]
-            return resis_map
+                resi_map[idx1] = resis2[idx2]
+            resi_map_list.append(resi_map)
 
-    def calc_fp(hs, resi_map):
-        fpt = []
+    resi_inter = set(resi_map_list[0])
+    for resi_map in resi_map_list[1:]:
+        resi_inter = resi_inter.intersection(resi_map)
+
+    # Compute the fingerprints
+    fp_list = []
+    for i, (p, hs, resi_map) in enumerate(zip(proteins, hotspots, resi_map_list)):
+        print(i, p, hs, resi_map)
+        fp = []
         labels = []
         for index in resi_map:
+            if index not in resi_inter:
+                continue
             model, mapped_index, resn, resi, chain = resi_map[index]
             cnt = count_molecules(
                 f"({hs}) within {radius} from (byres %{model} and index {mapped_index})"
             )
-            fpt.append(cnt)
+            fp.append(cnt)
             resn = ONE_LETTER.get(resn, "X")
             labels.append(f"{resn}{resi}{chain}")
-        return fpt, labels
-
-    def plot_fp(fp, lbl, hs, ax):
-        ax.set_ylabel(hs)
-        ax.bar(np.arange(len(fp)), fp)
-        ax.yaxis.set_major_formatter(lambda x, pos: str(int(x)))
-        ax.set_xticks(np.arange(len(fp)), labels=lbl, rotation=45)
-        ax.locator_params(axis="x", tight=True, nbins=nbins)
-        for label in ax.xaxis.get_majorticklabels():
-            label.set_horizontalalignment("right")
-
-    plt.close()
-    if plot_fingerprints and plot_dendrogram:
-        fig, axd = plt.subplot_mosaic(
-            list(zip(range(len(proteins)), ["DENDRO"] * len(proteins)))
-        )
-    elif plot_fingerprints and not plot_dendrogram:
-        fig, axd = plt.subplot_mosaic(list(zip(range(len(proteins)))))
-    elif not plot_fingerprints and plot_dendrogram:
-        fig, axd = plt.subplot_mosaic([["DENDRO"]])
-
-    fp_list = []
-    for i, (p, hs) in enumerate(zip(proteins, hotspots)):
-        resi_map = get_resi_map(p0, p)
-        fp, lbl = calc_fp(hs, resi_map)
         fp_list.append(fp)
+
+        print(p, hs)
         if plot_fingerprints:
-            plot_fp(fp, lbl, hs, axd[i])
+            ax = axd[i]
+            ax.set_ylabel(hs)
+            ax.bar(np.arange(len(fp)), fp)
+            ax.yaxis.set_major_formatter(lambda x, pos: str(int(x)))
+            ax.set_xticks(np.arange(len(fp)), labels=labels, rotation=45)
+            ax.locator_params(axis="x", tight=True, nbins=nbins)
+            for label in ax.xaxis.get_majorticklabels():
+                label.set_horizontalalignment("right")
+
 
     fp0 = fp_list[0]
     if not all([len(fp0) == len(fp) for fp in fp_list]):
@@ -775,13 +785,17 @@ def fp_sim(
                     print(f"Pearson correlation: {hs1} / {hs2}: {cor:.2f}")
 
         if plot_dendrogram:
+            ax = axd["DENDRO"]
             dendrogram(
                 linkage([1 - c for c in cor_list], method=linkage_method),
                 labels=hotspots,
-                ax=axd["DENDRO"],
+                ax=ax,
                 leaf_rotation=45,
                 color_threshold=0,
             )
+            for label in ax.xaxis.get_majorticklabels():
+                label.set_horizontalalignment("right")
+
 
     plt.tight_layout()
     plt.show()
@@ -1596,7 +1610,7 @@ class CountWidget(QWidget):
         self.hotspotsExpressionLine = QLineEdit("")
         boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
 
-        self.siteExpressionLine = QLineEdit("")
+        self.siteExpressionLine = QLineEdit("*")
         boxLayout.addRow("Site:", self.siteExpressionLine)
 
         self.radiusSpin = QSpinBox()
