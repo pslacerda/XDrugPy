@@ -696,6 +696,16 @@ def fp_sim(
         elif not plot_fingerprints and plot_dendrogram:
             fig, axd = plt.subplot_mosaic([["DENDRO"]])
 
+    # First protein never needs alignment
+    resis = {}
+    pm.iterate(
+        p0,
+        "resis[index] = (model, index, resn, resi, chain)",
+        space={"resis": resis},
+    )
+    resi_map = {i: resis[i] for i in resis if i in site_index}
+    resi_map_list = [resi_map]
+
     # Find the equivalent residues
     if not align or all(p0 == p for p in proteins):
         # Don't align, use the residues of the first protein
@@ -706,11 +716,10 @@ def fp_sim(
             space={"resis": resis},
         )
         resi_map = {i: resis[i] for i in resis if i in site_index}
-        resi_map_list = [resi_map] * len(proteins)
+        resi_map_list.extend([resi_map] * (len(proteins)-1))
     else:
         # Align protein structures, very tricky
-        resi_map_list = []
-        for p in proteins:
+        for p in proteins[:1]:
             try:
                 aln_obj = pm.get_unused_name()
                 pm.cealign(p0, p, transform=0, object=aln_obj)
@@ -730,14 +739,13 @@ def fp_sim(
                 resi_map[idx1] = resis2[idx2]
             resi_map_list.append(resi_map)
 
-    resi_inter = set(resi_map_list[0])
+    resi_inter = site_index
     for resi_map in resi_map_list[1:]:
-        resi_inter = resi_inter.intersection(resi_map)
-
+        resi_inter.intersection_update(resi_map)
+    
     # Compute the fingerprints
     fp_list = []
     for i, (p, hs, resi_map) in enumerate(zip(proteins, hotspots, resi_map_list)):
-        print(i, p, hs, resi_map)
         fp = []
         labels = []
         for index in resi_map:
@@ -752,7 +760,6 @@ def fp_sim(
             labels.append(f"{resn}{resi}{chain}")
         fp_list.append(fp)
 
-        print(p, hs)
         if plot_fingerprints:
             ax = axd[i]
             ax.set_ylabel(hs)
@@ -762,7 +769,6 @@ def fp_sim(
             ax.locator_params(axis="x", tight=True, nbins=nbins)
             for label in ax.xaxis.get_majorticklabels():
                 label.set_horizontalalignment("right")
-
 
     fp0 = fp_list[0]
     if not all([len(fp0) == len(fp) for fp in fp_list]):
