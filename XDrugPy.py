@@ -341,7 +341,7 @@ def get_fpocket(group, protein):
     with tempfile.TemporaryDirectory() as tempdir:
         protein_pdb = f"{tempdir}/{group}.pdb"
         pm.save(protein_pdb, selection=protein)
-        subprocess.check_call(
+        subprocess.check_output(
             [fpocket_bin, "-f", protein_pdb],
             env={"TMPDIR": tempdir},
         )
@@ -390,7 +390,7 @@ def process_eclusters(group, eclusters):
 
         pm.set_property("Type", "ACS", new_name)
         pm.set_property("Group", group, new_name)
-        pm.set_property("ProbeType", acs.probe_type, new_name)
+        pm.set_property("Class", acs.probe_type, new_name)
         pm.set_property("S", acs.strength, new_name)
         pm.set_property("MD", round(md, 2), new_name)
 
@@ -535,6 +535,8 @@ def count_molecules(sel):
 def fo(
     sel1: Selection,
     sel2: Selection,
+    state1: int = 1,
+    state2: int = 1,
     radius: float = 2,
     verbose: bool = True,
 ):
@@ -548,13 +550,15 @@ def fo(
     OPTIONS
         sel1    ligand object.
         sel2    hotspot object.
+        state1  ligand state.
+        state2  hotspot state.
         radius  the radius so sel1 and sel2 are in contact (default: 2).
 
     EXAMPLE
         fo REF_LIG, ftmap1234.D_003_*_*
     """
-    atoms1 = pm.get_coords(f"({sel1}) and not elem H")
-    atoms2 = pm.get_coords(f"({sel2}) and not elem H")
+    atoms1 = pm.get_coords(f"({sel1}) and not elem H", state=state1)
+    atoms2 = pm.get_coords(f"({sel2}) and not elem H", state=state2)
     dist = distance_matrix(atoms1, atoms2) - radius <= 0
     num_contacts = np.sum(np.any(dist, axis=1))
     total_atoms = len(atoms1)
@@ -568,6 +572,8 @@ def fo(
 def dc(
     sel1: Selection,
     sel2: Selection,
+    state1: int = 1,
+    state2: int = 1,
     radius: float = 1.25,
     verbose: bool = True,
 ):
@@ -581,6 +587,8 @@ def dc(
     OPTIONS
         sel1    first object
         sel2    second object
+        state1  ligand state
+        state2  hotspot state
         radius  the radius so two atoms are in contact (default: 1.25)
         verbose define verbosity
 
@@ -589,8 +597,8 @@ def dc(
         dc ftmap1234.D.003, REF_LIG, radius=1.5
 
     """
-    xyz1 = pm.get_coords(f"({sel1}) and not elem H")
-    xyz2 = pm.get_coords(f"({sel2}) and not elem H")
+    xyz1 = pm.get_coords(f"({sel1}) and not elem H", state=state1)
+    xyz2 = pm.get_coords(f"({sel2}) and not elem H", state=state2)
 
     dc_ = (distance_matrix(xyz1, xyz2) < radius).sum()
     if verbose:
@@ -602,6 +610,8 @@ def dc(
 def dce(
     sel1: Selection,
     sel2: Selection,
+    state1: int = 1,
+    state2: int = 1,
     radius: float = 1.25,
     verbose: bool = True,
 ):
@@ -615,13 +625,15 @@ def dce(
     OPTIONS
         sel1    ligand object
         sel2    hotspot object
+        state1  ligand state
+        state2  hotspot state
         radius  the radius so two atoms are in contact (default: 1.25)
-        verbose define verbosity
+        verbose define verbosity (default: true)
 
     EXAMPLE
         dce REF_LIG, ftmap1234.D_003_*_*
     """
-    dc_ = dc(sel1, sel2, radius, verbose=False)
+    dc_ = dc(sel1, sel2, radius=radius, state1=state1, state2=state2, verbose=False)
     dce_ = dc_ / pm.count_atoms(f"({sel1}) and not elem H")
     if verbose:
         print(f"DCE: {dce_:.2f}")
