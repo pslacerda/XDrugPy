@@ -144,6 +144,8 @@ ONE_LETTER = {
 }
 
 
+print("This version of XDRUGpy is intended for non-comercial and academic purposes only.")
+
 class Selection(str):
     pass
 
@@ -1620,7 +1622,7 @@ class CountWidget(QWidget):
         drawButton.clicked.connect(self.draw_projection)
         boxLayout.addWidget(drawButton)
 
-        groupBox = QGroupBox("Druggability fingerprint")
+        groupBox = QGroupBox("Fingerprint vector")
         layout.addWidget(groupBox)
         boxLayout = QFormLayout()
         groupBox.setLayout(boxLayout)
