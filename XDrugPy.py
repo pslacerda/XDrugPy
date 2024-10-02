@@ -1055,6 +1055,7 @@ def hs_proj(
         protein = f"{group}.protein"
 
     pm.alter(protein, "q=0")
+    print(f"({protein}) within {radius} of ({sel})")
     for prot_atom in pm.get_model(f"({protein}) within {radius} of ({sel})").atom:
         match type:
             case PrioritizationType.RESIDUE:
@@ -1599,8 +1600,8 @@ class CountWidget(QWidget):
         boxLayout = QFormLayout()
         groupBox.setLayout(boxLayout)
 
-        self.hotspotsExpressionLine = QLineEdit()
-        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
+        self.hotspotsExpressionLine1 = QLineEdit()
+        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine1)
 
         self.proteinExpressionLine = QLineEdit()
         boxLayout.addRow("Protein:", self.proteinExpressionLine)
@@ -1627,8 +1628,8 @@ class CountWidget(QWidget):
         boxLayout = QFormLayout()
         groupBox.setLayout(boxLayout)
 
-        self.hotspotsExpressionLine = QLineEdit("")
-        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine)
+        self.hotspotsExpressionLine2 = QLineEdit("")
+        boxLayout.addRow("Hotspots:", self.hotspotsExpressionLine2)
 
         self.siteExpressionLine = QLineEdit("*")
         boxLayout.addRow("Site:", self.siteExpressionLine)
@@ -1662,7 +1663,7 @@ class CountWidget(QWidget):
         boxLayout.addWidget(plotButton)
 
     def draw_projection(self):
-        hotspots = self.hotspotsExpressionLine.text()
+        hotspots = self.hotspotsExpressionLine1.text()
         protein = self.proteinExpressionLine.text()
         radius = self.radiusSpin.value()
         type = self.typeCombo.currentText()
@@ -1671,7 +1672,7 @@ class CountWidget(QWidget):
         hs_proj(hotspots, protein, radius, type, palette)
 
     def plot_fingerprint(self):
-        hotspots = self.hotspotsExpressionLine.text()
+        hotspots = self.hotspotsExpressionLine2.text()
         site = self.siteExpressionLine.text()
         radius = self.radiusSpin.value()
         fingerprints = self.fingerprintsCheck.isChecked()
